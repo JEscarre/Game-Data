@@ -1,0 +1,16 @@
+{
+  "name": "Kids&Us Manresa · Game Data",
+  "short_name": "Game Data",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f3f1ed",
+  "theme_color": "#0a1830",
+  "icons": [
+    {
+      "src": "/kids-us-manresa.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
