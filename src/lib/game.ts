@@ -205,10 +205,10 @@ export const derivePlayerStats = (
   return stats
 }
 
-export const nextWholeMinute = (clockSeconds: number) => {
+export const nextThirtySeconds = (clockSeconds: number) => {
   if (clockSeconds <= 0) return 0
-  if (clockSeconds % 60 === 0) return Math.max(0, clockSeconds - 60)
-  return Math.floor(clockSeconds / 60) * 60
+  if (clockSeconds % 30 === 0) return Math.max(0, clockSeconds - 30)
+  return Math.floor(clockSeconds / 30) * 30
 }
 
 export const currentLineup = (

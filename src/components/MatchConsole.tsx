@@ -9,7 +9,7 @@ import {
   deriveTimeoutSlots,
   formatClock,
   formatPlayed,
-  nextWholeMinute,
+  nextThirtySeconds,
   parseClock,
   periodDuration,
   periodLabel,
@@ -18,6 +18,16 @@ import {
   type TimeoutSlot,
 } from '../lib/game'
 import type { Game, GameEvent, GamePlayer, PlayerPosition, Side } from '../types'
+import { ConfirmDialog } from './ConfirmDialog'
+
+
+interface MatchConfirmState {
+  title: string
+  message: string
+  confirmLabel: string
+  danger?: boolean
+  action: () => Promise<void>
+}
 
 interface MatchConsoleProps {
   game: Game
@@ -41,6 +51,8 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
   const [subIn, setSubIn] = useState<GamePlayer | null>(null)
   const [subClock, setSubClock] = useState(formatClock(game.current_clock_seconds))
   const [tab, setTab] = useState<'control' | 'fouls' | 'timeline'>('control')
+  const [confirmState, setConfirmState] = useState<MatchConfirmState | null>(null)
+  const [confirmBusy, setConfirmBusy] = useState(false)
 
   useEffect(() => {
     setClockDraft(formatClock(game.current_clock_seconds))
@@ -58,7 +70,7 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
   const activeEvents = useMemo(() => events.filter((event) => !event.undone_at), [events])
   const teamFoulsHome = fouls.bySidePeriod.get(`home:${game.current_period}`) ?? 0
   const teamFoulsAway = fouls.bySidePeriod.get(`away:${game.current_period}`) ?? 0
-  const nextMinute = nextWholeMinute(game.current_clock_seconds)
+  const nextStep = nextThirtySeconds(game.current_clock_seconds)
   const currentHalf = game.current_period <= 2 ? 1 : 2
   const isFinished = game.status === 'finished'
 
@@ -93,9 +105,9 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
     await updateClock(game.current_period, parsed, true, 'manual')
   }
 
-  const confirmNextMinute = async () => {
+  const confirmNextStep = async () => {
     if (game.current_clock_seconds === 0) return
-    await updateClock(game.current_period, nextMinute, true, 'minute')
+    await updateClock(game.current_period, nextStep, true, 'half-minute')
   }
 
   const addEvent = async (payload: Partial<GameEvent>) => {
@@ -115,7 +127,15 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
 
   const addFoul = async (player: GamePlayer) => {
     const current = playerStats.get(player.id)?.fouls ?? 0
-    if (current >= 5 && !confirm(`${player.name} ja consta amb 5 faltes. Vols afegir-ne una altra igualment?`)) return
+    if (current >= 5) {
+      setConfirmState({
+        title: 'Afegir una altra falta?',
+        message: `${player.name} ja consta amb 5 faltes. Confirma només si vols corregir o registrar una situació excepcional.`,
+        confirmLabel: 'Afegir falta',
+        action: async () => { await addEvent({ event_type: 'foul', side: player.side, player_id: player.id }) },
+      })
+      return
+    }
     await addEvent({ event_type: 'foul', side: player.side, player_id: player.id })
   }
 
@@ -246,11 +266,17 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
     await updateClock(next, periodDuration(next), true, 'period')
   }
 
-  const finishGame = async () => {
-    if (!confirm('Marcar el partit com a finalitzat?')) return
-    const { error } = await supabase.from('games').update({ status: 'finished' }).eq('id', game.id)
-    if (error) return alert(error.message)
-    await onReload()
+  const finishGame = () => {
+    setConfirmState({
+      title: 'Finalitzar partit?',
+      message: 'El partit quedarà marcat com a finalitzat. El podràs reobrir més endavant si cal.',
+      confirmLabel: 'Finalitzar partit',
+      action: async () => {
+        const { error } = await supabase.from('games').update({ status: 'finished' }).eq('id', game.id)
+        if (error) return alert(error.message)
+        await onReload()
+      },
+    })
   }
 
   const resumeGame = async () => {
@@ -259,19 +285,44 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
     await onReload()
   }
 
-  const resetGame = async () => {
-    if (!confirm('S’esborraran marcador, canvis, faltes i temps morts. Es conservaran els jugadors i els titulars. Continuar?')) return
-    const { error } = await supabase.rpc('reset_game', { p_game_id: game.id })
-    if (error) return alert(error.message)
-    setClockDraft('10:00')
-    await onReload()
+  const resetGame = () => {
+    setConfirmState({
+      title: 'Reiniciar dades del partit?',
+      message: 'S’esborraran marcador, canvis, faltes i temps morts. Es conservaran els jugadors i els titulars.',
+      confirmLabel: 'Reiniciar partit',
+      danger: true,
+      action: async () => {
+        const { error } = await supabase.rpc('reset_game', { p_game_id: game.id })
+        if (error) return alert(error.message)
+        setClockDraft('10:00')
+        await onReload()
+      },
+    })
   }
 
-  const deleteGame = async () => {
-    if (!confirm('Eliminar definitivament aquest partit de l’historial?')) return
-    const { error } = await supabase.from('games').delete().eq('id', game.id)
-    if (error) return alert(error.message)
-    onBack()
+  const deleteGame = () => {
+    setConfirmState({
+      title: 'Eliminar partit?',
+      message: 'S’eliminarà definitivament aquest partit de l’historial, amb totes les dades registrades. Aquesta acció no es pot desfer.',
+      confirmLabel: 'Eliminar partit',
+      danger: true,
+      action: async () => {
+        const { error } = await supabase.from('games').delete().eq('id', game.id)
+        if (error) return alert(error.message)
+        onBack()
+      },
+    })
+  }
+
+  const runConfirmation = async () => {
+    if (!confirmState) return
+    setConfirmBusy(true)
+    try {
+      await confirmState.action()
+      setConfirmState(null)
+    } finally {
+      setConfirmBusy(false)
+    }
   }
 
   const updatePlayer = async (player: GamePlayer) => {
@@ -351,7 +402,7 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
                   </span>
                 </button>
 
-                <div className={`foul-count ${foulLevelClass(count)}`}>{count}</div>
+                <div className={`foul-count ${foulLevelClass(count)}`}><b>F {count}</b><small>/5</small></div>
 
                 <div className="foul-dots" aria-label={`${count} faltes`}>
                   {[1, 2, 3, 4, 5].map((number) => (
@@ -443,6 +494,12 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
               <button key={points} disabled={isFinished} onClick={() => addScore('home', points)}>+{points}</button>
             ))}
           </div>
+          <div className={`score-team-fouls ${teamFoulsHome >= 5 ? 'warning' : ''}`}>
+            <div><span>FALTES {periodLabel(game.current_period)}</span><strong>{teamFoulsHome}</strong></div>
+            <div className="score-foul-meter" aria-label={`${teamFoulsHome} faltes d’equip`}>
+              {[1, 2, 3, 4, 5].map((value) => <i key={value} className={value <= Math.min(teamFoulsHome, 5) ? 'filled' : ''} />)}
+            </div>
+          </div>
         </div>
 
         <div className="game-clock-box">
@@ -458,9 +515,9 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
             />
             <button onClick={saveClockDraft} disabled={isFinished}>Actualitza</button>
           </div>
-          <button className="minute-button" onClick={confirmNextMinute} disabled={game.current_clock_seconds === 0 || isFinished}>
-            <span>PASSAR AL SEGÜENT MINUT</span>
-            <strong>{formatClock(game.current_clock_seconds)} → {formatClock(nextMinute)}</strong>
+          <button className="minute-button" onClick={confirmNextStep} disabled={game.current_clock_seconds === 0 || isFinished}>
+            <span>PASSAR 30 SEGONS</span>
+            <strong>{formatClock(game.current_clock_seconds)} → {formatClock(nextStep)}</strong>
           </button>
         </div>
 
@@ -471,6 +528,12 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
             {[1, 2, 3].map((points) => (
               <button key={points} disabled={isFinished} onClick={() => addScore('away', points)}>+{points}</button>
             ))}
+          </div>
+          <div className={`score-team-fouls ${teamFoulsAway >= 5 ? 'warning' : ''}`}>
+            <div><span>FALTES {periodLabel(game.current_period)}</span><strong>{teamFoulsAway}</strong></div>
+            <div className="score-foul-meter" aria-label={`${teamFoulsAway} faltes d’equip`}>
+              {[1, 2, 3, 4, 5].map((value) => <i key={value} className={value <= Math.min(teamFoulsAway, 5) ? 'filled' : ''} />)}
+            </div>
           </div>
         </div>
       </section>
@@ -504,7 +567,12 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
                   >
                     <div className="player-card-top">
                       <span className={`jersey large-jersey pos-border-${player.position ?? 'none'}`}>{player.jersey_number || '–'}</span>
-                      {renderPosition(player)}
+                      <div className="player-card-badges">
+                        {renderPosition(player)}
+                        <span className={`court-foul-badge ${foulLevelClass(stats.fouls)}`}>
+                          <b>F {stats.fouls}</b><small>/5</small>
+                        </span>
+                      </div>
                     </div>
                     <strong className="player-card-name">{player.name}</strong>
                     <div className="player-stat-line"><span>Seguit</span><b>{formatPlayed(stats.stintSeconds)}</b></div>
@@ -539,8 +607,9 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
                     <span className={`jersey pos-border-${player.position ?? 'none'}`}>{player.jersey_number || '–'}</span>
                     <span className="bench-name">
                       <strong>{player.name}</strong>
-                      <small>Total {formatPlayed(stats.totalSeconds)} · {stats.fouls} faltes</small>
+                      <small>Total {formatPlayed(stats.totalSeconds)}</small>
                     </span>
+                    <span className={`bench-foul-badge ${foulLevelClass(stats.fouls)}`}>F {stats.fouls}/5</span>
                     {renderPosition(player)}
                     <button className="bench-edit" onClick={() => updatePlayer(player)}>Editar</button>
                     {disqualified && <span className="eliminated-tag">5 F · ELIMINAT</span>}
@@ -663,6 +732,16 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
           </section>
         </div>
       )}
+      <ConfirmDialog
+        open={Boolean(confirmState)}
+        title={confirmState?.title ?? ''}
+        message={confirmState?.message ?? ''}
+        confirmLabel={confirmState?.confirmLabel}
+        danger={confirmState?.danger}
+        busy={confirmBusy}
+        onCancel={() => !confirmBusy && setConfirmState(null)}
+        onConfirm={runConfirmation}
+      />
     </main>
   )
 }

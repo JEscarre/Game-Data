@@ -1,0 +1,3 @@
+-- DEPRECATED: no executar aquest fitxer.
+-- La importació correcta és HOJA-1 (JD NOTAE, KOLENDA, etc.).
+-- Per a instal·lació/correcció utilitza: supabase/replace_training_with_HOJA1.sql

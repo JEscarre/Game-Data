@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import type { Game } from '../types'
+import { ConfirmDialog } from './ConfirmDialog'
 
 interface GamesDashboardProps {
   onOpenGame: (gameId: string) => void
@@ -9,6 +10,8 @@ interface GamesDashboardProps {
 export function GamesDashboard({ onOpenGame }: GamesDashboardProps) {
   const [games, setGames] = useState<Game[]>([])
   const [creating, setCreating] = useState(false)
+  const [gameToDelete, setGameToDelete] = useState<Game | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const load = async () => {
     const { data, error } = await supabase
@@ -40,12 +43,13 @@ export function GamesDashboard({ onOpenGame }: GamesDashboardProps) {
     onOpenGame(data.id)
   }
 
-  const deleteGame = async (game: Game) => {
-    const label = `${new Date(`${game.game_date}T12:00:00`).toLocaleDateString('ca-ES')} · ${game.opponent_name}`
-    if (!confirm(`Eliminar definitivament ${label}? Aquesta acció no es pot desfer.`)) return
-
-    const { error } = await supabase.from('games').delete().eq('id', game.id)
+  const deleteGame = async () => {
+    if (!gameToDelete) return
+    setDeleting(true)
+    const { error } = await supabase.from('games').delete().eq('id', gameToDelete.id)
+    setDeleting(false)
     if (error) return alert(error.message)
+    setGameToDelete(null)
     await load()
   }
 
@@ -93,13 +97,23 @@ export function GamesDashboard({ onOpenGame }: GamesDashboardProps) {
                 </div>
                 <span className="game-open">Obrir partit</span>
               </button>
-              <button className="game-card-delete" onClick={() => deleteGame(game)}>
+              <button className="game-card-delete" onClick={() => setGameToDelete(game)}>
                 Eliminar
               </button>
             </article>
           ))}
         </div>
       </section>
+      <ConfirmDialog
+        open={Boolean(gameToDelete)}
+        title="Eliminar partit?"
+        message={gameToDelete ? `S’eliminarà definitivament el partit del ${new Date(`${gameToDelete.game_date}T12:00:00`).toLocaleDateString('ca-ES')} contra ${gameToDelete.opponent_name}. Aquesta acció no es pot desfer.` : ''}
+        confirmLabel="Eliminar partit"
+        danger
+        busy={deleting}
+        onCancel={() => !deleting && setGameToDelete(null)}
+        onConfirm={deleteGame}
+      />
     </main>
   )
 }

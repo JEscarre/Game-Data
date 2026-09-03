@@ -31,3 +31,14 @@ VITE_LOGIN_EMAIL
 5. Desplega.
 
 Cada `git push` posterior generarà un nou desplegament.
+
+
+## Entrenaments v3
+
+Abans d'obrir la nova pestanya **Entrenaments** en producció, actualitza Supabase:
+
+1. Executa `supabase/migration_v3_training.sql`.
+2. Executa `supabase/seed_training_excel.sql`.
+3. Després fes `git push`; Vercel desplegarà el codi nou amb les mateixes variables d'entorn.
+
+El seed és idempotent i no elimina ni modifica els partits existents.

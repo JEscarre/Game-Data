@@ -7,10 +7,12 @@ import { Header } from './components/Header'
 import { GamesDashboard } from './components/GamesDashboard'
 import { GameSetup } from './components/GameSetup'
 import { MatchConsole } from './components/MatchConsole'
+import { TrainingDashboard } from './components/TrainingDashboard'
 
 function App() {
   const [session, setSession] = useState<Session | null>(null)
   const [authReady, setAuthReady] = useState(false)
+  const [section, setSection] = useState<'games' | 'training'>('games')
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null)
   const [game, setGame] = useState<Game | null>(null)
   const [players, setPlayers] = useState<GamePlayer[]>([])
@@ -77,6 +79,11 @@ function App() {
     setEvents([])
   }
 
+  const navigate = (nextSection: 'games' | 'training') => {
+    closeGame()
+    setSection(nextSection)
+  }
+
   if (!authReady) {
     return (
       <div className="splash">
@@ -91,7 +98,7 @@ function App() {
   if (selectedGameId && game) {
     return game.status === 'draft' ? (
       <>
-        <Header onHome={closeGame} />
+        <Header section="games" onNavigate={navigate} />
         <GameSetup game={game} players={players} onReload={loadGame} onBack={closeGame} />
       </>
     ) : (
@@ -101,8 +108,8 @@ function App() {
 
   return (
     <>
-      <Header onHome={closeGame} />
-      <GamesDashboard onOpenGame={setSelectedGameId} />
+      <Header section={section} onNavigate={navigate} />
+      {section === 'games' ? <GamesDashboard onOpenGame={setSelectedGameId} /> : <TrainingDashboard />}
     </>
   )
 }

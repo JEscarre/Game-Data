@@ -1,4 +1,4 @@
-# Supabase · Game Data v2
+# Supabase · Game Data v3
 
 ## Si ja vas executar la primera versió
 
@@ -35,3 +35,14 @@ VITE_LOGIN_EMAIL=...
 ```
 
 No facis servir la `secret key` ni `service_role` al navegador.
+
+## 5. Actualització v3 · Entrenaments
+
+Si el projecte ja tenia la versió de partits en producció, **no tornis a executar tot `schema.sql`**. Executa, en aquest ordre:
+
+1. `supabase/migration_v3_training.sql`
+2. `supabase/seed_training_excel.sql`
+
+El seed és idempotent: utilitza `source_key` i es pot tornar a executar si cal. Crea la temporada 2026-27, el roster importat i les dades històriques recuperables de l’Excel.
+
+Per una base de dades nova, executa `supabase/schema.sql` i després `supabase/seed_training_excel.sql`.

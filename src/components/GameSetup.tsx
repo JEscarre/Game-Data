@@ -1,6 +1,7 @@
 import { FormEvent, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import type { Game, GamePlayer, PlayerPosition, Side } from '../types'
+import { ConfirmDialog } from './ConfirmDialog'
 
 interface GameSetupProps {
   game: Game
@@ -25,6 +26,9 @@ export function GameSetup({ game, players, onReload, onBack }: GameSetupProps) {
     position: 'guard' as PlayerPosition,
   })
   const [starters, setStarters] = useState<string[]>(game.initial_lineup ?? [])
+  const [playerToDelete, setPlayerToDelete] = useState<GamePlayer | null>(null)
+  const [deleteGameOpen, setDeleteGameOpen] = useState(false)
+  const [deleteBusy, setDeleteBusy] = useState(false)
 
   const home = useMemo(() => players.filter((player) => player.side === 'home'), [players])
   const away = useMemo(() => players.filter((player) => player.side === 'away'), [players])
@@ -65,12 +69,15 @@ export function GameSetup({ game, players, onReload, onBack }: GameSetupProps) {
     await onReload()
   }
 
-  const removePlayer = async (player: GamePlayer) => {
-    if (!confirm(`Eliminar ${player.name}?`)) return
-    if (starters.includes(player.id)) setStarters((previous) => previous.filter((id) => id !== player.id))
+  const removePlayer = async () => {
+    if (!playerToDelete) return
+    setDeleteBusy(true)
+    if (starters.includes(playerToDelete.id)) setStarters((previous) => previous.filter((id) => id !== playerToDelete.id))
 
-    const { error } = await supabase.from('game_players').delete().eq('id', player.id)
+    const { error } = await supabase.from('game_players').delete().eq('id', playerToDelete.id)
+    setDeleteBusy(false)
     if (error) return alert(error.message)
+    setPlayerToDelete(null)
     await onReload()
   }
 
@@ -83,9 +90,11 @@ export function GameSetup({ game, players, onReload, onBack }: GameSetupProps) {
   }
 
   const deleteGame = async () => {
-    if (!confirm('Eliminar definitivament aquest partit?')) return
+    setDeleteBusy(true)
     const { error } = await supabase.from('games').delete().eq('id', game.id)
+    setDeleteBusy(false)
     if (error) return alert(error.message)
+    setDeleteGameOpen(false)
     onBack()
   }
 
@@ -160,7 +169,7 @@ export function GameSetup({ game, players, onReload, onBack }: GameSetupProps) {
               </select>
             </label>
 
-            <button className="text-button danger-text" type="button" onClick={() => removePlayer(player)}>
+            <button className="text-button danger-text" type="button" onClick={() => setPlayerToDelete(player)}>
               Eliminar
             </button>
           </div>
@@ -233,10 +242,31 @@ export function GameSetup({ game, players, onReload, onBack }: GameSetupProps) {
       <div className="sticky-action-bar">
         <div><strong>Partit preparat</strong><span>Els canvis i els minuts es calcularan a partir del rellotge de partit.</span></div>
         <div className="setup-final-actions">
-          <button className="button danger-on-dark" onClick={deleteGame}>Eliminar partit</button>
+          <button className="button danger-on-dark" onClick={() => setDeleteGameOpen(true)}>Eliminar partit</button>
           <button className="button primary light-primary large" onClick={startGame} disabled={starters.length !== 5}>Començar partit</button>
         </div>
       </div>
+      <ConfirmDialog
+        open={Boolean(playerToDelete)}
+        title={playerToDelete ? `Eliminar ${playerToDelete.name}?` : 'Eliminar jugador?'}
+        message="El jugador s’eliminarà d’aquest partit. Aquesta acció no es pot desfer."
+        confirmLabel="Eliminar jugador"
+        danger
+        busy={deleteBusy}
+        onCancel={() => !deleteBusy && setPlayerToDelete(null)}
+        onConfirm={removePlayer}
+      />
+
+      <ConfirmDialog
+        open={deleteGameOpen}
+        title="Eliminar partit?"
+        message="S’eliminarà definitivament aquest partit, els jugadors i totes les dades registrades. Aquesta acció no es pot desfer."
+        confirmLabel="Eliminar partit"
+        danger
+        busy={deleteBusy}
+        onCancel={() => !deleteBusy && setDeleteGameOpen(false)}
+        onConfirm={deleteGame}
+      />
     </main>
   )
 }
