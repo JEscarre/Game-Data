@@ -77,9 +77,9 @@ export function TrainingDashboard() {
     setSeasonId((previous) => previous || next.find((season) => season.is_current)?.id || next[0]?.id || '')
   }, [])
 
-  const loadSeasonData = useCallback(async () => {
+  const loadSeasonData = useCallback(async (silent = false) => {
     if (!seasonId) return
-    setLoading(true)
+    if (!silent) setLoading(true)
 
     const [playersResult, sessionsResult] = await Promise.all([
       supabase.from('training_players').select('*').eq('season_id', seasonId).order('active', { ascending: false }).order('jersey_number').order('name'),
@@ -87,11 +87,11 @@ export function TrainingDashboard() {
     ])
 
     if (playersResult.error) {
-      setLoading(false)
+      if (!silent) setLoading(false)
       return alert(playersResult.error.message)
     }
     if (sessionsResult.error) {
-      setLoading(false)
+      if (!silent) setLoading(false)
       return alert(sessionsResult.error.message)
     }
 
@@ -110,9 +110,18 @@ export function TrainingDashboard() {
         supabase.from('training_competitions').select('*').in('session_id', sessionIds).order('created_at'),
         supabase.from('training_imported_points').select('*').in('session_id', sessionIds),
       ])
-      if (attendanceResult.error) return alert(attendanceResult.error.message)
-      if (competitionsResult.error) return alert(competitionsResult.error.message)
-      if (importedPointsResult.error) return alert(importedPointsResult.error.message)
+      if (attendanceResult.error) {
+        if (!silent) setLoading(false)
+        return alert(attendanceResult.error.message)
+      }
+      if (competitionsResult.error) {
+        if (!silent) setLoading(false)
+        return alert(competitionsResult.error.message)
+      }
+      if (importedPointsResult.error) {
+        if (!silent) setLoading(false)
+        return alert(importedPointsResult.error.message)
+      }
       nextAttendance = (attendanceResult.data ?? []) as TrainingAttendance[]
       nextCompetitions = (competitionsResult.data ?? []) as TrainingCompetition[]
       nextImportedPoints = (importedPointsResult.data ?? []) as TrainingImportedPoint[]
@@ -120,7 +129,10 @@ export function TrainingDashboard() {
       const competitionIds = nextCompetitions.map((competition) => competition.id)
       if (competitionIds.length) {
         const { data, error } = await supabase.from('training_competition_results').select('*').in('competition_id', competitionIds)
-        if (error) return alert(error.message)
+        if (error) {
+          if (!silent) setLoading(false)
+          return alert(error.message)
+        }
         nextResults = (data ?? []) as TrainingCompetitionResult[]
       }
     }
@@ -132,7 +144,7 @@ export function TrainingDashboard() {
     setResults(nextResults)
     setImportedPoints(nextImportedPoints)
     setSelectedSessionId((previous) => previous && nextSessions.some((session) => session.id === previous) ? previous : nextSessions[0]?.id ?? null)
-    setLoading(false)
+    if (!silent) setLoading(false)
   }, [seasonId])
 
   useEffect(() => {
@@ -143,14 +155,29 @@ export function TrainingDashboard() {
     void loadSeasonData()
     if (!seasonId) return
 
+    const patchAttendanceFromRealtime = (payload: { eventType: string; new: unknown }) => {
+      if (payload.eventType === 'DELETE') {
+        void loadSeasonData(true)
+        return
+      }
+
+      const row = payload.new as Partial<TrainingAttendance>
+      if (!row.session_id || !row.player_id || (row.status !== 'present' && row.status !== 'absent')) return
+
+      setAttendance((previous) => {
+        const filtered = previous.filter((item) => !(item.session_id === row.session_id && item.player_id === row.player_id))
+        return [...filtered, row as TrainingAttendance]
+      })
+    }
+
     const channel = supabase
       .channel(`training:${seasonId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'training_players', filter: `season_id=eq.${seasonId}` }, () => void loadSeasonData())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'training_sessions', filter: `season_id=eq.${seasonId}` }, () => void loadSeasonData())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'training_attendance' }, () => void loadSeasonData())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'training_competitions' }, () => void loadSeasonData())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'training_competition_results' }, () => void loadSeasonData())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'training_imported_points' }, () => void loadSeasonData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'training_players', filter: `season_id=eq.${seasonId}` }, () => void loadSeasonData(true))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'training_sessions', filter: `season_id=eq.${seasonId}` }, () => void loadSeasonData(true))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'training_attendance' }, patchAttendanceFromRealtime)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'training_competitions' }, () => void loadSeasonData(true))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'training_competition_results' }, () => void loadSeasonData(true))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'training_imported_points' }, () => void loadSeasonData(true))
       .subscribe()
 
     return () => {
@@ -287,7 +314,7 @@ export function TrainingDashboard() {
     setSelectedSessionId(session.id)
     setNavigationDate(session.session_date)
     setCreatingSession(false)
-    await loadSeasonData()
+    await loadSeasonData(true)
   }
 
   const askDeleteSession = (session: TrainingSession) => {
@@ -299,7 +326,7 @@ export function TrainingDashboard() {
         const { error } = await supabase.from('training_sessions').delete().eq('id', session.id)
         if (error) return alert(error.message)
         setSelectedSessionId(null)
-        await loadSeasonData()
+        await loadSeasonData(true)
       },
     })
   }
@@ -307,28 +334,56 @@ export function TrainingDashboard() {
   const updateSession = async (session: TrainingSession, patch: Partial<TrainingSession>) => {
     const { error } = await supabase.from('training_sessions').update(patch).eq('id', session.id)
     if (error) return alert(error.message)
-    await loadSeasonData()
+    await loadSeasonData(true)
   }
 
   const setAttendanceStatus = async (playerId: string, status: AttendanceStatus) => {
     if (!selectedSession) return
+    const sessionId = selectedSession.id
+    const previousStatus = selectedAttendance.get(playerId)
+
+    // Optimistic update: the row changes immediately and the page never enters a loading state.
+    setAttendance((previous) => {
+      const filtered = previous.filter((row) => !(row.session_id === sessionId && row.player_id === playerId))
+      return [...filtered, { session_id: sessionId, player_id: playerId, status } as TrainingAttendance]
+    })
+
     const { error } = await supabase.from('training_attendance').upsert(
-      { session_id: selectedSession.id, player_id: playerId, status },
+      { session_id: sessionId, player_id: playerId, status },
       { onConflict: 'session_id,player_id' },
     )
-    if (error) return alert(error.message)
+
+    if (!error) return
+
+    // Roll back only this player if Supabase rejects the change.
     setAttendance((previous) => {
-      const filtered = previous.filter((row) => !(row.session_id === selectedSession.id && row.player_id === playerId))
-      return [...filtered, { session_id: selectedSession.id, player_id: playerId, status } as TrainingAttendance]
+      const filtered = previous.filter((row) => !(row.session_id === sessionId && row.player_id === playerId))
+      if (!previousStatus) return filtered
+      return [...filtered, { session_id: sessionId, player_id: playerId, status: previousStatus } as TrainingAttendance]
     })
+    alert(error.message)
   }
 
   const setAllAttendance = async (status: AttendanceStatus) => {
     if (!selectedSession || !sessionEligiblePlayers.length) return
-    const payload = sessionEligiblePlayers.map((player) => ({ session_id: selectedSession.id, player_id: player.id, status }))
+    const sessionId = selectedSession.id
+    const previousRows = attendance.filter((row) => row.session_id === sessionId)
+    const eligibleIds = new Set(sessionEligiblePlayers.map((player) => player.id))
+    const payload = sessionEligiblePlayers.map((player) => ({ session_id: sessionId, player_id: player.id, status }))
+
+    setAttendance((previous) => [
+      ...previous.filter((row) => row.session_id !== sessionId || !eligibleIds.has(row.player_id)),
+      ...payload.map((row) => row as TrainingAttendance),
+    ])
+
     const { error } = await supabase.from('training_attendance').upsert(payload, { onConflict: 'session_id,player_id' })
-    if (error) return alert(error.message)
-    await loadSeasonData()
+    if (!error) return
+
+    setAttendance((previous) => [
+      ...previous.filter((row) => row.session_id !== sessionId || !eligibleIds.has(row.player_id)),
+      ...previousRows,
+    ])
+    alert(error.message)
   }
 
   const addPlayer = async (event: FormEvent) => {
@@ -344,7 +399,7 @@ export function TrainingDashboard() {
     if (error) return alert(error.message)
     setNewPlayer({ name: '', jersey: '', joinedOn: todayIso() })
     setShowPlayerForm(false)
-    await loadSeasonData()
+    await loadSeasonData(true)
   }
 
   const askDeletePlayer = (player: TrainingPlayer) => {
@@ -356,7 +411,7 @@ export function TrainingDashboard() {
       action: async () => {
         const { error } = await supabase.from('training_players').delete().eq('id', player.id)
         if (error) return alert(error.message)
-        await loadSeasonData()
+        await loadSeasonData(true)
       },
     })
   }
@@ -497,7 +552,7 @@ export function TrainingDashboard() {
       action: async () => {
         const { error } = await supabase.from('training_competitions').delete().eq('id', competition.id)
         if (error) return alert(error.message)
-        await loadSeasonData()
+        await loadSeasonData(true)
       },
     })
   }

@@ -19,6 +19,7 @@ const required = [
   'public/kids-us-manresa.png',
   'UPDATE_V3_3.md',
   'UPDATE_V3_4.md',
+  'UPDATE_V3_5.md',
 ]
 
 const missing = required.filter((file) => !fs.existsSync(path.resolve(file)))
@@ -28,8 +29,8 @@ if (missing.length) {
 }
 
 const pkg = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8'))
-if (pkg.version !== '3.4.0') {
-  console.error('La versió del package no és 3.4.0.')
+if (pkg.version !== '3.5.0') {
+  console.error('La versió del package no és 3.5.0.')
   process.exit(1)
 }
 
@@ -86,6 +87,12 @@ for (const token of requiredTrainingTokens) {
     process.exit(1)
   }
 }
+
+if (!trainingSource.includes('Optimistic update') || !trainingSource.includes('patchAttendanceFromRealtime') || !trainingSource.includes('loadSeasonData(true)')) {
+  console.error('No s’ha detectat la correcció v3.5 d’assistència sense recàrrega visual.')
+  process.exit(1)
+}
+
 if (trainingSource.includes('Guardar resultats')) {
   console.error('Encara existeix el botó manual de guardar resultats.')
   process.exit(1)
@@ -104,4 +111,4 @@ if (/\bconfirm\s*\(/.test(allUiSource)) {
   process.exit(1)
 }
 
-console.log('Estructura v3.4 OK · inici flexible + plantilla i titulars editables amb el partit obert.')
+console.log('Estructura v3.5 OK · assistència instantània sense recàrrega visual + funcionalitats v3.4 preservades.')
