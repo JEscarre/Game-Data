@@ -849,7 +849,7 @@ h3 { font-size: .98rem; margin-bottom: 0; }
 .attendance-accordion-body .attendance-actions { padding-top: 12px; border-top: 0; }
 
 .daily-results-summary {
-  margin: 15px 0 18px;
+  margin: 0 0 18px;
   padding: 14px;
   border: 1px solid #dbe2ea;
   border-radius: 16px;
@@ -1180,3 +1180,9 @@ h3 { font-size: .98rem; margin-bottom: 0; }
   .live-add-player-form input:nth-of-type(2),
   .live-add-player-form .button { grid-column: auto; }
 }
+
+/* v3.6 · training backup + clearer competition flow */
+.training-backup-button { white-space: nowrap; border-color: rgba(255,255,255,.22); background: rgba(255,255,255,.1); color: white; }
+.training-backup-button:hover { border-color: rgba(255,255,255,.42); background: rgba(255,255,255,.16); }
+.training-backup-button:disabled { opacity: .65; }
+.competitions-panel .daily-results-summary { margin-top: 0; }

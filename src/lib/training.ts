@@ -60,9 +60,22 @@ export const deriveTrainingSummaries = (
       if (result.player_id !== player.id || result.points <= 0) continue
       const competition = competitionMap.get(result.competition_id)
       if (!competition) continue
+
+      // v3.2-v3.5 stored the 2/2 bonus as a synthetic +1 result with no place.
+      // From v3.6 onward the bonus is derived from attendance + the competition flag,
+      // so ignore those legacy rows to avoid counting the same bonus twice.
+      if (competition.category === 'free_throw' && competition.free_throw_bonus_made && result.place === null) continue
+
       if (competition.category === 'shooting') shootingPoints += result.points
       if (competition.category === 'free_throw') freeThrowPoints += result.points
       if (competition.category === 'competition') competitionPoints += result.points
+    }
+
+    // A successful 2/2 gives +1 FT point to every player who attended that session,
+    // including players who already earned 1st/2nd/3rd/4th-place points.
+    for (const competition of competitions) {
+      if (competition.category !== 'free_throw' || !competition.free_throw_bonus_made) continue
+      if (attendanceMap.get(`${competition.session_id}:${player.id}`) === 'present') freeThrowPoints += 1
     }
 
     for (const imported of importedPoints) {

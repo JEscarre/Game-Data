@@ -41,6 +41,23 @@ const categoryOrder: TrainingCompetitionCategory[] = ['shooting', 'free_throw', 
 const pointsForPlace = (place: number) => 5 - place
 const pointShortLabel: Record<number, string> = { 1: '4 PTS', 2: '3 PTS', 3: '2 PTS', 4: '1 PT' }
 const todayIso = () => new Date().toISOString().slice(0, 10)
+const backupPageSize = 1000
+
+const fetchAllTrainingRows = async <T,>(table: string): Promise<T[]> => {
+  const rows: T[] = []
+  for (let from = 0; ; from += backupPageSize) {
+    const { data, error } = await supabase
+      .from(table)
+      .select('*')
+      .range(from, from + backupPageSize - 1)
+
+    if (error) throw error
+    const page = (data ?? []) as T[]
+    rows.push(...page)
+    if (page.length < backupPageSize) break
+  }
+  return rows
+}
 
 export function TrainingDashboard() {
   const [seasons, setSeasons] = useState<TrainingSeason[]>([])
@@ -62,6 +79,7 @@ export function TrainingDashboard() {
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null)
   const [confirmBusy, setConfirmBusy] = useState(false)
   const [attendanceOpen, setAttendanceOpen] = useState(true)
+  const [backupBusy, setBackupBusy] = useState(false)
   const [competitionSaveState, setCompetitionSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const competitionSaveChain = useRef<Promise<void>>(Promise.resolve())
 
@@ -240,8 +258,22 @@ export function TrainingDashboard() {
       if (row.points <= 0) continue
       const competition = competitionById.get(row.competition_id)
       if (!competition) continue
+
+      // Ignore legacy synthetic bonus rows from v3.2-v3.5. The bonus is now
+      // calculated from attendance so winners receive it too.
+      if (competition.category === 'free_throw' && competition.free_throw_bonus_made && row.place === null) continue
+
       const bucket = totals[competition.category]
       bucket.set(row.player_id, (bucket.get(row.player_id) ?? 0) + row.points)
+    }
+
+    // 2/2 bonus: every present player gets +1 FT point for each activated FT competition.
+    for (const competition of sessionCompetitions) {
+      if (competition.category !== 'free_throw' || !competition.free_throw_bonus_made) continue
+      for (const player of sessionEligiblePlayers) {
+        if (selectedAttendance.get(player.id) !== 'present') continue
+        totals.free_throw.set(player.id, (totals.free_throw.get(player.id) ?? 0) + 1)
+      }
     }
 
     return categoryOrder.reduce((output, category) => {
@@ -254,7 +286,7 @@ export function TrainingDashboard() {
         .sort((a, b) => b.points - a.points || a.name.localeCompare(b.name, 'ca'))
       return output
     }, { shooting: [], free_throw: [], competition: [] } as Record<TrainingCompetitionCategory, Array<{ playerId: string; points: number; name: string }>>)
-  }, [sessionImportedPoints, sessionCompetitions, results, players])
+  }, [sessionImportedPoints, sessionCompetitions, results, players, sessionEligiblePlayers, selectedAttendance])
 
   const hasDailyPoints = categoryOrder.some((category) => dailyPointsByCategory[category].length > 0)
 
@@ -386,6 +418,179 @@ export function TrainingDashboard() {
     alert(error.message)
   }
 
+  const downloadTrainingBackup = async () => {
+    setBackupBusy(true)
+    try {
+      const [allSeasons, allPlayers, allSessions, allAttendance, allCompetitions, allResults, allImportedPoints] = await Promise.all([
+        fetchAllTrainingRows<TrainingSeason>('training_seasons'),
+        fetchAllTrainingRows<TrainingPlayer>('training_players'),
+        fetchAllTrainingRows<TrainingSession>('training_sessions'),
+        fetchAllTrainingRows<TrainingAttendance>('training_attendance'),
+        fetchAllTrainingRows<TrainingCompetition>('training_competitions'),
+        fetchAllTrainingRows<TrainingCompetitionResult>('training_competition_results'),
+        fetchAllTrainingRows<TrainingImportedPoint>('training_imported_points'),
+      ])
+
+      const seasonById = new Map(allSeasons.map((season) => [season.id, season]))
+      const playerById = new Map(allPlayers.map((player) => [player.id, player]))
+      const attendanceBySession = new Map<string, TrainingAttendance[]>()
+      const competitionsBySession = new Map<string, TrainingCompetition[]>()
+      const resultsByCompetition = new Map<string, TrainingCompetitionResult[]>()
+      const importedBySession = new Map<string, TrainingImportedPoint[]>()
+
+      for (const row of allAttendance) attendanceBySession.set(row.session_id, [...(attendanceBySession.get(row.session_id) ?? []), row])
+      for (const row of allCompetitions) competitionsBySession.set(row.session_id, [...(competitionsBySession.get(row.session_id) ?? []), row])
+      for (const row of allResults) resultsByCompetition.set(row.competition_id, [...(resultsByCompetition.get(row.competition_id) ?? []), row])
+      for (const row of allImportedPoints) importedBySession.set(row.session_id, [...(importedBySession.get(row.session_id) ?? []), row])
+
+      const trainingByDay = [...allSessions]
+        .sort((a, b) => a.session_date.localeCompare(b.session_date) || a.created_at.localeCompare(b.created_at))
+        .map((session) => {
+          const sessionAttendance = attendanceBySession.get(session.id) ?? []
+          const presentPlayerIds = new Set(sessionAttendance.filter((row) => row.status === 'present').map((row) => row.player_id))
+          const sessionCompetitionsForBackup = competitionsBySession.get(session.id) ?? []
+
+          return {
+            id: session.id,
+            season: seasonById.get(session.season_id)?.name ?? session.season_id,
+            date: session.session_date,
+            title: session.title,
+            countsForAttendance: session.counts_for_attendance,
+            attendance: sessionAttendance
+              .map((row) => ({
+                playerId: row.player_id,
+                player: playerById.get(row.player_id)?.name ?? row.player_id,
+                jersey: playerById.get(row.player_id)?.jersey_number ?? '',
+                status: row.status,
+              }))
+              .sort((a, b) => a.player.localeCompare(b.player, 'ca')),
+            competitions: sessionCompetitionsForBackup.map((competition) => {
+              const competitionResults = resultsByCompetition.get(competition.id) ?? []
+              const legacyBonusRows = competition.category === 'free_throw' && competition.free_throw_bonus_made
+                ? competitionResults.filter((row) => row.place === null && row.points === 1)
+                : []
+              const baseResults = competitionResults.filter((row) => !legacyBonusRows.includes(row))
+              const baseByPlayer = new Map(baseResults.map((row) => [row.player_id, row]))
+              const awardedPlayerIds = new Set(baseResults.map((row) => row.player_id))
+
+              if (competition.category === 'free_throw' && competition.free_throw_bonus_made) {
+                for (const playerId of presentPlayerIds) awardedPlayerIds.add(playerId)
+              }
+
+              return {
+                id: competition.id,
+                category: competition.category,
+                title: competition.title,
+                twoFreeThrowsMade: competition.free_throw_bonus_made,
+                awards: [...awardedPlayerIds]
+                  .map((playerId) => {
+                    const base = baseByPlayer.get(playerId)
+                    const bonusPoints = competition.category === 'free_throw' && competition.free_throw_bonus_made && presentPlayerIds.has(playerId) ? 1 : 0
+                    return {
+                      playerId,
+                      player: playerById.get(playerId)?.name ?? playerId,
+                      jersey: playerById.get(playerId)?.jersey_number ?? '',
+                      place: base?.place ?? null,
+                      basePoints: base?.points ?? 0,
+                      bonusPoints,
+                      totalPoints: (base?.points ?? 0) + bonusPoints,
+                    }
+                  })
+                  .sort((a, b) => b.totalPoints - a.totalPoints || a.player.localeCompare(b.player, 'ca')),
+              }
+            }),
+            importedPoints: (importedBySession.get(session.id) ?? [])
+              .map((row) => ({
+                playerId: row.player_id,
+                player: playerById.get(row.player_id)?.name ?? row.player_id,
+                category: row.category,
+                points: row.points,
+              }))
+              .sort((a, b) => a.player.localeCompare(b.player, 'ca')),
+          }
+        })
+
+      const standingsBySeason = allSeasons.map((season) => {
+        const seasonPlayers = allPlayers.filter((player) => player.season_id === season.id)
+        const seasonSessions = allSessions.filter((session) => session.season_id === season.id)
+        const sessionIds = new Set(seasonSessions.map((session) => session.id))
+        const seasonAttendance = allAttendance.filter((row) => sessionIds.has(row.session_id))
+        const seasonCompetitions = allCompetitions.filter((competition) => sessionIds.has(competition.session_id))
+        const competitionIds = new Set(seasonCompetitions.map((competition) => competition.id))
+        const seasonResults = allResults.filter((row) => competitionIds.has(row.competition_id))
+        const seasonImportedPoints = allImportedPoints.filter((row) => sessionIds.has(row.session_id))
+
+        return {
+          season: season.name,
+          standings: sortTrainingSummaries(
+            deriveTrainingSummaries(seasonPlayers, seasonSessions, seasonAttendance, seasonCompetitions, seasonResults, seasonImportedPoints),
+          ).map((summary, index) => ({
+            rank: index + 1,
+            player: summary.player.name,
+            jersey: summary.player.jersey_number,
+            attended: summary.attended,
+            eligibleSessions: summary.eligibleSessions,
+            attendancePct: Number(summary.attendancePct.toFixed(2)),
+            shootingPoints: summary.shootingPoints,
+            freeThrowPoints: summary.freeThrowPoints,
+            competitionPoints: summary.competitionPoints,
+            totalPoints: summary.totalPoints,
+            finalScore: Number(summary.finalScore.toFixed(4)),
+          })),
+        }
+      })
+
+      const backup = {
+        format: 'kidsus-manresa-training-backup',
+        schemaVersion: 2,
+        appVersion: '3.6.0',
+        exportedAt: new Date().toISOString(),
+        rules: {
+          competitionPoints: '4/3/2/1 segons la puntuació assignada',
+          freeThrowTwoOfTwo: '+1 punt de Free Throws per a cada jugador present, inclosos els que ja han puntuat en la competició',
+        },
+        counts: {
+          seasons: allSeasons.length,
+          players: allPlayers.length,
+          sessions: allSessions.length,
+          attendanceRows: allAttendance.length,
+          competitions: allCompetitions.length,
+          competitionResultRows: allResults.length,
+          importedPointRows: allImportedPoints.length,
+        },
+        readable: {
+          trainingByDay,
+          standingsBySeason,
+        },
+        raw: {
+          training_seasons: allSeasons,
+          training_players: allPlayers,
+          training_sessions: allSessions,
+          training_attendance: allAttendance,
+          training_competitions: allCompetitions,
+          training_competition_results: allResults,
+          training_imported_points: allImportedPoints,
+        },
+      }
+
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').replace('Z', '')
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json;charset=utf-8' })
+      const objectUrl = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = objectUrl
+      link.download = `game-data-training-backup_${timestamp}.json`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No s'ha pogut generar la còpia de seguretat."
+      alert(message)
+    } finally {
+      setBackupBusy(false)
+    }
+  }
+
   const addPlayer = async (event: FormEvent) => {
     event.preventDefault()
     if (!newPlayer.name.trim() || !seasonId) return
@@ -480,19 +685,10 @@ export function TrainingDashboard() {
         points: pointsForPlace(place as number),
       }))
 
-    const rankedPlayerIds = new Set(ranked.map((row) => row.player_id))
-    const bonusRows = bonusMade
-      ? sessionEligiblePlayers
-          .filter((player) => selectedAttendance.get(player.id) === 'present' && !rankedPlayerIds.has(player.id))
-          .map((player) => ({
-            competition_id: competitionId,
-            player_id: player.id,
-            place: null,
-            points: 1,
-          }))
-      : []
-
-    const payload = [...ranked, ...bonusRows]
+    // Store only the base 4/3/2/1 placement points. The 2/2 bonus is derived
+    // from attendance + free_throw_bonus_made so every present player receives it,
+    // including players who already scored in the competition.
+    const payload = ranked
     if (payload.length) {
       const { error } = await supabase.from('training_competition_results').insert(payload)
       if (error) throw error
@@ -579,11 +775,20 @@ export function TrainingDashboard() {
     }))
   }
 
-  const competitionBonusNames = (competition: TrainingCompetition) =>
-    results
-      .filter((row) => row.competition_id === competition.id && row.place === null && row.points === 1)
-      .map((row) => players.find((player) => player.id === row.player_id)?.name)
-      .filter(Boolean) as string[]
+  const competitionBonusNames = (competition: TrainingCompetition) => {
+    if (competition.category !== 'free_throw' || !competition.free_throw_bonus_made) return []
+    const session = sessions.find((item) => item.id === competition.session_id)
+    if (!session) return []
+    const presentIds = new Set(
+      attendance
+        .filter((row) => row.session_id === competition.session_id && row.status === 'present')
+        .map((row) => row.player_id),
+    )
+    return players
+      .filter((player) => isPlayerEligibleForSession(player, session) && presentIds.has(player.id))
+      .map((player) => player.name)
+      .sort((a, b) => a.localeCompare(b, 'ca'))
+  }
 
   return (
     <main className="page-shell training-shell">
@@ -594,6 +799,14 @@ export function TrainingDashboard() {
           <p>Assistència, competicions i classificació de tota la temporada.</p>
         </div>
         <div className="training-hero-actions">
+          <button
+            className="button secondary large training-backup-button"
+            onClick={() => void downloadTrainingBackup()}
+            disabled={backupBusy}
+            title="Descarrega totes les dades d'entrenaments en un fitxer JSON"
+          >
+            {backupBusy ? 'Preparant còpia…' : '↓ Còpia de seguretat'}
+          </button>
           <label className="season-select">
             <span>Temporada</span>
             <select value={seasonId} onChange={(event) => setSeasonId(event.target.value)}>
@@ -697,13 +910,22 @@ export function TrainingDashboard() {
 
             <section className="panel competitions-panel">
               <div className="section-heading">
-                <div><p className="eyebrow">COMPETICIONS</p><h2>Resultats del dia</h2></div>
+                <div><p className="eyebrow">COMPETICIONS</p><h2>Afegir resultats</h2></div>
                 <span>Pots assignar els mateixos punts a més d’un jugador</span>
               </div>
+
+              <div className="add-competition-row">
+                {categoryOrder.map((category) => (
+                  <button key={category} className={`quick-competition category-${category}`} onClick={() => void openCompetition(category)} disabled={!selectedSeason?.is_current}>
+                    <span>+</span><strong>{trainingCategoryLabel[category]}</strong>
+                  </button>
+                ))}
+              </div>
+
               {hasDailyPoints && (
                 <div className="daily-results-summary">
                   <div className="daily-results-summary-head">
-                    <div><strong>Punts agregats del dia</strong><span>Suma total per jugador i categoria en aquest entrenament.</span></div>
+                    <div><strong>Resultats del dia</strong><span>Punts agregats per jugador i categoria en aquest entrenament.</span></div>
                   </div>
                   <div className="daily-results-summary-grid">
                     {categoryOrder.map((category) => {
@@ -722,14 +944,6 @@ export function TrainingDashboard() {
                   </div>
                 </div>
               )}
-
-              <div className="add-competition-row">
-                {categoryOrder.map((category) => (
-                  <button key={category} className={`quick-competition category-${category}`} onClick={() => void openCompetition(category)} disabled={!selectedSeason?.is_current}>
-                    <span>+</span><strong>{trainingCategoryLabel[category]}</strong>
-                  </button>
-                ))}
-              </div>
 
               <div className="competition-groups">
                 {categoryOrder.map((category) => {
@@ -759,7 +973,7 @@ export function TrainingDashboard() {
                               {competition.free_throw_bonus_made && (
                                 <div className="competition-result-row ft-bonus-result">
                                   <span className="result-place">2/2</span>
-                                  <span className="result-names">{bonusNames.length ? bonusNames.join(' · ') : 'Sense jugadors amb 0 punts'}</span>
+                                  <span className="result-names">{bonusNames.length ? bonusNames.join(' · ') : 'Sense jugadors presents'}</span>
                                   <strong className="result-points">+1 <small>PTS</small></strong>
                                 </div>
                               )}
@@ -849,7 +1063,7 @@ export function TrainingDashboard() {
                   onChange={(event) => setFreeThrowBonus(event.target.checked)}
                 />
                 <span className="ft-bonus-mark">2/2</span>
-                <span className="ft-bonus-copy"><strong>2 FREE THROWS MADE</strong><small>Si s’activa, tots els jugadors presents que tenen 0 punts en aquesta competició reben +1 punt de Free Throws.</small></span>
+                <span className="ft-bonus-copy"><strong>2 FREE THROWS MADE</strong><small>Si s’activa, tots els jugadors presents reben +1 punt de Free Throws, també els que ja han sumat punts en aquesta competició.</small></span>
                 <span className="ft-bonus-switch" aria-hidden="true" />
               </label>
             )}

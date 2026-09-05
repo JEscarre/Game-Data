@@ -47,3 +47,13 @@ Si vols forçar Chrome des d’un segon PowerShell:
 ```powershell
 Start-Process chrome "http://localhost:3000"
 ```
+
+## v3.6 · 2/2 + backup d'entrenaments
+
+Si ja tens la v3.5 en producció:
+
+1. Substitueix el frontend per la carpeta v3.6 conservant `.env.local`.
+2. Executa una vegada `supabase/migration_v3_6_ft_bonus_all.sql` al SQL Editor de Supabase.
+3. Executa `npm install`, `npm run check` i `npm run build`.
+4. Prova una competició de Free Throws amb `2 FREE THROWS MADE`: tots els presents han de rebre +1, també els que tinguin 4/3/2/1 punts base.
+5. Prova el botó `Còpia de seguretat` a Entrenaments i verifica que es descarrega un JSON amb totes les temporades i taules d'entrenament.

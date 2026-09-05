@@ -143,3 +143,13 @@ Si ja tens la v3.2 funcionant, **no cal executar cap SQL nou**. Substitueix els 
 ## Update v3.4
 
 Consulta `UPDATE_V3_4.md` per als canvis de plantilla i quintet editable durant el partit.
+
+## Update v3.5
+
+Consulta `UPDATE_V3_5.md` per a la correcció d'assistència fluida sense recàrregues visuals.
+
+## Update v3.6
+
+Consulta `UPDATE_V3_6.md`. Aquesta versió corregeix el bonus `2 FREE THROWS MADE` perquè sumi +1 a tots els jugadors presents, afegeix una còpia de seguretat manual completa d'entrenaments i posa `Afegir resultats` abans de `Resultats del dia`.
+
+Si ja tens v3.5, executa una vegada `supabase/migration_v3_6_ft_bonus_all.sql` després d'actualitzar el frontend.

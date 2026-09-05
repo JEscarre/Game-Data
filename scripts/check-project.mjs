@@ -20,6 +20,8 @@ const required = [
   'UPDATE_V3_3.md',
   'UPDATE_V3_4.md',
   'UPDATE_V3_5.md',
+  'UPDATE_V3_6.md',
+  'supabase/migration_v3_6_ft_bonus_all.sql',
 ]
 
 const missing = required.filter((file) => !fs.existsSync(path.resolve(file)))
@@ -29,8 +31,8 @@ if (missing.length) {
 }
 
 const pkg = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8'))
-if (pkg.version !== '3.5.0') {
-  console.error('La versió del package no és 3.5.0.')
+if (pkg.version !== '3.6.0') {
+  console.error('La versió del package no és 3.6.0.')
   process.exit(1)
 }
 
@@ -93,6 +95,28 @@ if (!trainingSource.includes('Optimistic update') || !trainingSource.includes('p
   process.exit(1)
 }
 
+
+if (!trainingSource.includes('downloadTrainingBackup') || !trainingSource.includes('Còpia de seguretat') || !trainingSource.includes('fetchAllTrainingRows')) {
+  console.error('No s’ha detectat la còpia de seguretat completa de la v3.6.')
+  process.exit(1)
+}
+if (!trainingSource.includes('tots els jugadors presents reben +1 punt') || trainingSource.includes('que tenen 0 punts')) {
+  console.error('La regla 2/2 no està actualitzada per premiar tots els presents.')
+  process.exit(1)
+}
+const addResultsIndex = trainingSource.indexOf('<h2>Afegir resultats</h2>')
+const dayResultsIndex = trainingSource.indexOf('<strong>Resultats del dia</strong>')
+if (addResultsIndex < 0 || dayResultsIndex < 0 || addResultsIndex > dayResultsIndex) {
+  console.error('L’ordre de competicions no és Afegir resultats -> Resultats del dia.')
+  process.exit(1)
+}
+
+const trainingLib = fs.readFileSync(path.resolve('src/lib/training.ts'), 'utf8')
+if (!trainingLib.includes('freeThrowPoints += 1') || !trainingLib.includes('result.place === null')) {
+  console.error('No s’ha detectat el càlcul dinàmic del bonus 2/2 de la v3.6.')
+  process.exit(1)
+}
+
 if (trainingSource.includes('Guardar resultats')) {
   console.error('Encara existeix el botó manual de guardar resultats.')
   process.exit(1)
@@ -111,4 +135,4 @@ if (/\bconfirm\s*\(/.test(allUiSource)) {
   process.exit(1)
 }
 
-console.log('Estructura v3.5 OK · assistència instantània sense recàrrega visual + funcionalitats v3.4 preservades.')
+console.log('Estructura v3.6 OK · bonus 2/2 per a tots els presents + backup complet + ordre de resultats corregit.')
