@@ -11,7 +11,7 @@ Aquesta versió incorpora:
 - Sense plantilla persistent: els jugadors es creen dins de cada partit.
 - Nom, dorsal i posició manual per jugador: Guard / Wing / Big.
 - Color diferent per cada posició.
-- Selecció dels 5 titulars abans de començar.
+- Quintet inicial opcional abans de començar i editable amb el partit obert.
 - 4 quarts de 10 minuts i pròrrogues de 5 minuts.
 - Rellotge de partit manual, sempre inicialitzat amb l’últim temps registrat.
 - Botó gran per avançar el rellotge en blocs de **30 segons** i confirmar els 5 jugadors a pista.
@@ -138,3 +138,8 @@ Puja la carpeta sencera al repositori, però no `.env.local`. A Vercel afegeix l
 ## Actualització v3.3
 
 Si ja tens la v3.2 funcionant, **no cal executar cap SQL nou**. Substitueix els fitxers de frontend, conserva `.env.local` i executa `npm install`, `npm run check` i `npm run dev`.
+
+
+## Update v3.4
+
+Consulta `UPDATE_V3_4.md` per als canvis de plantilla i quintet editable durant el partit.

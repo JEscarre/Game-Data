@@ -99,9 +99,6 @@ export function GameSetup({ game, players, onReload, onBack }: GameSetupProps) {
   }
 
   const startGame = async () => {
-    if (starters.length !== 5) return alert('Selecciona exactament 5 titulars de Kids&Us Manresa.')
-    if (home.length < 5) return alert('Necessites com a mínim 5 jugadors de Kids&Us Manresa.')
-
     const { error } = await supabase
       .from('games')
       .update({
@@ -186,9 +183,9 @@ export function GameSetup({ game, players, onReload, onBack }: GameSetupProps) {
         <div>
           <p className="eyebrow">PREPARACIÓ</p>
           <h1>Configura el partit</h1>
-          <p className="muted">Afegeix jugadors, dorsal i posició. Selecciona els 5 titulars abans de començar.</p>
+          <p className="muted">Pots començar el partit encara que la plantilla no estigui completa o no hagis triat els 5 titulars. Ho podràs editar amb el partit obert.</p>
         </div>
-        <div className="starter-count"><strong>{starters.length}/5</strong><span>titulars</span></div>
+        <div className="starter-count"><strong>{starters.length}/5</strong><span>titulars · opcional</span></div>
       </div>
 
       <section className="card setup-meta">
@@ -240,10 +237,10 @@ export function GameSetup({ game, players, onReload, onBack }: GameSetupProps) {
       </div>
 
       <div className="sticky-action-bar">
-        <div><strong>Partit preparat</strong><span>Els canvis i els minuts es calcularan a partir del rellotge de partit.</span></div>
+        <div><strong>Pots començar quan vulguis</strong><span>Jugadors i quintet inicial es poden completar o corregir durant el partit.</span></div>
         <div className="setup-final-actions">
           <button className="button danger-on-dark" onClick={() => setDeleteGameOpen(true)}>Eliminar partit</button>
-          <button className="button primary light-primary large" onClick={startGame} disabled={starters.length !== 5}>Començar partit</button>
+          <button className="button primary light-primary large" onClick={startGame}>Començar partit</button>
         </div>
       </div>
       <ConfirmDialog

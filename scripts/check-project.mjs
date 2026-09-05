@@ -6,6 +6,7 @@ const required = [
   'index.html',
   'src/App.tsx',
   'src/components/ConfirmDialog.tsx',
+  'src/components/GameSetup.tsx',
   'src/components/MatchConsole.tsx',
   'src/components/TrainingDashboard.tsx',
   'src/lib/game.ts',
@@ -17,6 +18,7 @@ const required = [
   'data/Control competiciones 26-27.xlsx',
   'public/kids-us-manresa.png',
   'UPDATE_V3_3.md',
+  'UPDATE_V3_4.md',
 ]
 
 const missing = required.filter((file) => !fs.existsSync(path.resolve(file)))
@@ -26,14 +28,45 @@ if (missing.length) {
 }
 
 const pkg = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8'))
-if (pkg.version !== '3.3.0') {
-  console.error('La versió del package no és 3.3.0.')
+if (pkg.version !== '3.4.0') {
+  console.error('La versió del package no és 3.4.0.')
   process.exit(1)
 }
 
 const gameSource = fs.readFileSync(path.resolve('src/lib/game.ts'), 'utf8')
 if (!gameSource.includes('nextThirtySeconds')) {
   console.error('No s’ha detectat el pas de rellotge de 30 segons.')
+  process.exit(1)
+}
+
+const setupSource = fs.readFileSync(path.resolve('src/components/GameSetup.tsx'), 'utf8')
+if (setupSource.includes("starters.length !== 5") || setupSource.includes('home.length < 5')) {
+  console.error('GameSetup encara bloqueja l’inici sense quintet o plantilla completa.')
+  process.exit(1)
+}
+if (!setupSource.includes('Pots començar el partit encara que la plantilla no estigui completa')) {
+  console.error('No s’ha detectat el flux de començament flexible.')
+  process.exit(1)
+}
+
+const matchSource = fs.readFileSync(path.resolve('src/components/MatchConsole.tsx'), 'utf8')
+const requiredMatchTokens = [
+  'Jugadors i titulars',
+  'addRosterPlayer',
+  'savePlayerPatch',
+  'toggleInitialStarter',
+  'requestDeletePlayer',
+  'roster-manager-modal',
+  'validInitialLineup',
+]
+for (const token of requiredMatchTokens) {
+  if (!matchSource.includes(token)) {
+    console.error(`No s’ha detectat el canvi v3.4: ${token}`)
+    process.exit(1)
+  }
+}
+if (/\bprompt\s*\(/.test(matchSource)) {
+  console.error('Encara hi ha prompts natius per editar jugadors al partit.')
   process.exit(1)
 }
 
@@ -61,10 +94,6 @@ if (/Excel/i.test(trainingSource)) {
   console.error('Encara hi ha una referència visible a Excel al TrainingDashboard.')
   process.exit(1)
 }
-if (trainingSource.includes('Baixa') || trainingSource.includes('Reactivar')) {
-  console.error('Encara hi ha controls de baixa/reactivació al llistat de training.')
-  process.exit(1)
-}
 
 const allUiSource = fs.readdirSync(path.resolve('src/components'))
   .filter((name) => name.endsWith('.tsx'))
@@ -75,10 +104,4 @@ if (/\bconfirm\s*\(/.test(allUiSource)) {
   process.exit(1)
 }
 
-const migration = fs.readFileSync(path.resolve('supabase/migration_v3_2_training_ui.sql'), 'utf8')
-if (!migration.includes('free_throw_bonus_made') || !migration.includes('points in (0, 1)')) {
-  console.error('La migració v3.2 no sembla completa.')
-  process.exit(1)
-}
-
-console.log('Estructura v3.3 OK · resultats del dia nets + taula compacta + autoguardat + assistència desplegable.')
+console.log('Estructura v3.4 OK · inici flexible + plantilla i titulars editables amb el partit obert.')

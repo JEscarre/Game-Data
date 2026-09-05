@@ -977,3 +977,206 @@ h3 { font-size: .98rem; margin-bottom: 0; }
   .competition-result-row { grid-template-columns: 48px minmax(0,1fr) 50px; }
   .result-place { width: 44px; font-size: .62rem; }
 }
+
+/* v3.4 · Start anytime + live roster and starter management */
+.match-topbar-actions {
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.rotation-heading-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+.lineup-empty-state {
+  grid-column: 1 / -1;
+  min-height: 112px;
+  border: 2px dashed #cbd4df;
+  border-radius: 13px;
+  background: #f8fafc;
+  color: var(--navy);
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 5px;
+  padding: 18px;
+  text-align: center;
+}
+.lineup-empty-state:hover { border-color: var(--red); background: #fffafa; }
+.lineup-empty-state strong { font-size: .84rem; }
+.lineup-empty-state span { max-width: 470px; color: var(--muted); font-size: .68rem; line-height: 1.5; }
+
+.roster-manager-modal {
+  width: min(1160px, calc(100% - 28px));
+  max-height: calc(100vh - 32px);
+  padding: 20px;
+}
+.roster-modal-header { margin-bottom: 12px; }
+.roster-modal-header h2 { margin-bottom: 5px; }
+.roster-modal-header span { display: block; color: var(--muted); font-size: .7rem; line-height: 1.45; }
+.live-lineup-summary {
+  min-height: 60px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid #d9e2ec;
+  border-left: 4px solid var(--navy);
+  border-radius: 12px;
+  background: #f6f8fb;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 14px;
+}
+.live-lineup-summary > div { display: flex; align-items: center; gap: 10px; }
+.live-lineup-summary span { color: #677487; font-size: .56rem; font-weight: 800; letter-spacing: .08em; }
+.live-lineup-summary strong {
+  min-width: 48px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--navy);
+  color: white;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 1.2rem;
+}
+.live-lineup-summary p { margin: 0; color: var(--muted); font-size: .64rem; line-height: 1.45; }
+.live-add-player-form {
+  display: grid;
+  grid-template-columns: 1.15fr .8fr .55fr 1.4fr .8fr auto;
+  gap: 7px;
+  align-items: end;
+  margin-bottom: 14px;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fbfcfd;
+}
+.live-add-player-form input,
+.live-add-player-form select {
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: white;
+  padding: 0 9px;
+  color: var(--ink);
+  font-size: .72rem;
+}
+.live-add-copy { display: grid; gap: 2px; align-self: center; }
+.live-add-copy span { color: var(--red); font-size: .55rem; font-weight: 800; letter-spacing: .1em; }
+.live-add-copy strong { color: var(--navy); font-size: .75rem; }
+.live-roster-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; }
+.live-roster-team {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+  overflow: hidden;
+}
+.live-roster-team-heading {
+  min-height: 54px;
+  padding: 9px 11px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+  background: #f6f8fa;
+  border-bottom: 1px solid var(--line);
+}
+.live-roster-team-heading > div { display: grid; gap: 2px; min-width: 0; }
+.live-roster-team-heading span { color: var(--red); font-size: .53rem; font-weight: 800; letter-spacing: .1em; }
+.live-roster-team-heading strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--navy); font-size: .76rem; }
+.live-roster-team-heading b { color: var(--muted); font-size: .58rem; white-space: nowrap; }
+.live-roster-list { display: grid; gap: 6px; padding: 8px; }
+.live-roster-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 78px 54px minmax(120px, 1fr) 84px 58px;
+  gap: 6px;
+  align-items: center;
+  padding: 6px;
+  border: 1px solid #e7ebef;
+  border-radius: 10px;
+  background: #fbfcfd;
+}
+.live-roster-row input,
+.live-roster-row select {
+  min-width: 0;
+  width: 100%;
+  min-height: 35px;
+  border: 1px solid #dce2e8;
+  border-radius: 8px;
+  background: white;
+  padding: 0 7px;
+  color: var(--ink);
+  font-size: .67rem;
+}
+.live-roster-row input:first-of-type { text-align: center; font-weight: 800; }
+.live-starter-toggle,
+.live-rival-tag {
+  min-height: 35px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  padding: 0 7px;
+  font-size: .58rem;
+  font-weight: 800;
+}
+.live-starter-toggle { border: 1px solid #cfd7e1; background: white; color: var(--muted); }
+.live-starter-toggle.selected { border-color: var(--navy); background: var(--navy); color: white; }
+.live-rival-tag { background: #edf0f4; color: #6b7584; }
+.live-delete-player {
+  min-height: 35px;
+  border: 1px solid #edc5c8;
+  border-radius: 8px;
+  background: white;
+  color: #ad2730;
+  font-size: .57rem;
+  font-weight: 800;
+}
+.live-delete-player:hover { background: var(--red-soft); border-color: #df9ea3; }
+
+@media (max-width: 1100px) {
+  .match-topbar { grid-template-columns: auto 1fr auto; }
+  .match-topbar-actions .button { min-height: 36px; padding: 0 10px; font-size: .67rem; }
+  .live-roster-columns { grid-template-columns: 1fr; }
+  .live-add-player-form { grid-template-columns: .9fr .55fr 1.2fr .8fr auto; }
+  .live-add-copy { grid-column: 1 / -1; }
+}
+
+@media (max-width: 760px) {
+  .match-topbar {
+    height: auto;
+    min-height: 62px;
+    padding: 8px 10px;
+    grid-template-columns: 1fr auto;
+  }
+  .game-meta-inline { display: none; }
+  .match-topbar-actions { grid-column: 1 / -1; width: 100%; justify-self: stretch; }
+  .match-topbar-actions .button { flex: 1; }
+  .rotation-heading-actions { justify-content: flex-start; margin-top: 7px; }
+  .rotation-heading-actions .hint { width: 100%; }
+  .roster-manager-modal { width: calc(100% - 16px); padding: 14px; }
+  .live-lineup-summary { grid-template-columns: 1fr; gap: 7px; }
+  .live-add-player-form { grid-template-columns: 1fr 1fr; }
+  .live-add-copy { grid-column: 1 / -1; }
+  .live-add-player-form input:nth-of-type(2) { grid-column: 1 / -1; }
+  .live-add-player-form .button { grid-column: 1 / -1; }
+  .live-roster-row {
+    grid-template-columns: 72px 48px minmax(110px, 1fr) 72px 52px;
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 520px) {
+  .live-roster-row { grid-template-columns: 68px 45px 150px 70px 50px; }
+  .live-roster-list { overflow-x: auto; }
+  .live-add-player-form { grid-template-columns: 1fr; }
+  .live-add-copy,
+  .live-add-player-form input:nth-of-type(2),
+  .live-add-player-form .button { grid-column: auto; }
+}

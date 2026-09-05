@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import {
   currentLineup,
@@ -53,6 +53,13 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
   const [tab, setTab] = useState<'control' | 'fouls' | 'timeline'>('control')
   const [confirmState, setConfirmState] = useState<MatchConfirmState | null>(null)
   const [confirmBusy, setConfirmBusy] = useState(false)
+  const [rosterOpen, setRosterOpen] = useState(false)
+  const [newRosterPlayer, setNewRosterPlayer] = useState({
+    side: 'home' as Side,
+    number: '',
+    name: '',
+    position: 'guard' as PlayerPosition,
+  })
 
   useEffect(() => {
     setClockDraft(formatClock(game.current_clock_seconds))
@@ -73,6 +80,10 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
   const nextStep = nextThirtySeconds(game.current_clock_seconds)
   const currentHalf = game.current_period <= 2 ? 1 : 2
   const isFinished = game.status === 'finished'
+  const validInitialLineup = useMemo(
+    () => (game.initial_lineup ?? []).filter((id) => homePlayers.some((player) => player.id === id)),
+    [game.initial_lineup, homePlayers],
+  )
 
   const updateClock = async (period: number, clockSeconds: number, registerLineup = false, source = 'manual') => {
     const { error } = await supabase
@@ -325,26 +336,84 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
     }
   }
 
-  const updatePlayer = async (player: GamePlayer) => {
-    const name = prompt('Nom del jugador', player.name)
-    if (name === null || !name.trim()) return
+  const savePlayerPatch = async (player: GamePlayer, patch: Partial<GamePlayer>) => {
+    const cleanedPatch: Partial<GamePlayer> = { ...patch }
+    if (typeof cleanedPatch.name === 'string') {
+      cleanedPatch.name = cleanedPatch.name.trim()
+      if (!cleanedPatch.name) return
+    }
+    if (typeof cleanedPatch.jersey_number === 'string') cleanedPatch.jersey_number = cleanedPatch.jersey_number.trim()
 
-    const number = prompt('Dorsal', player.jersey_number)
-    if (number === null) return
-
-    const currentPosition = player.position ?? 'guard'
-    const position = prompt('Posició: guard, wing o big', currentPosition)
-    if (position === null) return
-    if (!['guard', 'wing', 'big'].includes(position)) return alert('La posició ha de ser guard, wing o big.')
-
-    const { error } = await supabase
-      .from('game_players')
-      .update({ name: name.trim(), jersey_number: number.trim(), position })
-      .eq('id', player.id)
-
+    const { error } = await supabase.from('game_players').update(cleanedPatch).eq('id', player.id)
     if (error) return alert(error.message)
     await onReload()
   }
+
+  const addRosterPlayer = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!newRosterPlayer.name.trim()) return
+
+    const sidePlayers = players.filter((player) => player.side === newRosterPlayer.side)
+    const { error } = await supabase.from('game_players').insert({
+      game_id: game.id,
+      side: newRosterPlayer.side,
+      name: newRosterPlayer.name.trim(),
+      jersey_number: newRosterPlayer.number.trim(),
+      position: newRosterPlayer.position,
+      sort_order: sidePlayers.length,
+    })
+
+    if (error) return alert(error.message)
+    setNewRosterPlayer((previous) => ({ ...previous, number: '', name: '' }))
+    await onReload()
+  }
+
+  const toggleInitialStarter = async (player: GamePlayer) => {
+    if (player.side !== 'home') return
+    const current = validInitialLineup
+    const selected = current.includes(player.id)
+    if (!selected && current.length >= 5) return
+
+    const next = selected ? current.filter((id) => id !== player.id) : [...current, player.id]
+    const { error } = await supabase.from('games').update({ initial_lineup: next }).eq('id', game.id)
+    if (error) return alert(error.message)
+    await onReload()
+  }
+
+  const requestDeletePlayer = (player: GamePlayer) => {
+    const linkedEvents = activeEvents.filter(
+      (event) => event.player_id === player.id || event.related_player_id === player.id,
+    ).length
+    const isStarter = validInitialLineup.includes(player.id)
+    const details = [
+      isStarter ? 'També es traurà del quintet inicial.' : '',
+      linkedEvents > 0 ? `Té ${linkedEvents} acció${linkedEvents === 1 ? '' : 'ns'} vinculada${linkedEvents === 1 ? '' : 'es'}; en eliminar-lo també s’eliminaran aquestes accions.` : '',
+    ].filter(Boolean).join(' ')
+
+    setConfirmState({
+      title: `Eliminar ${player.name}?`,
+      message: `El jugador s’eliminarà d’aquest partit. ${details} Aquesta acció no es pot desfer.`.trim(),
+      confirmLabel: 'Eliminar jugador',
+      danger: true,
+      action: async () => {
+        if (isStarter) {
+          const { error: lineupError } = await supabase
+            .from('games')
+            .update({ initial_lineup: validInitialLineup.filter((id) => id !== player.id) })
+            .eq('id', game.id)
+          if (lineupError) return alert(lineupError.message)
+        }
+
+        const { error } = await supabase.from('game_players').delete().eq('id', player.id)
+        if (error) return alert(error.message)
+        if (subOut?.id === player.id) setSubOut(null)
+        if (subIn?.id === player.id) setSubIn(null)
+        await onReload()
+      },
+    })
+  }
+
+  const openRosterManager = () => setRosterOpen(true)
 
   const describeEvent = (event: GameEvent) => {
     const player = players.find((item) => item.id === event.player_id)
@@ -394,7 +463,7 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
 
             return (
               <div className={`foul-row ${foulLevelClass(count)}`} key={player.id}>
-                <button className="player-name-button" onClick={() => updatePlayer(player)} title="Editar jugador">
+                <button className="player-name-button" onClick={openRosterManager} title="Editar plantilla">
                   <span className={`jersey pos-border-${player.position ?? 'none'}`}>{player.jersey_number || '–'}</span>
                   <span className="foul-player-copy">
                     <strong>{player.name}</strong>
@@ -482,7 +551,10 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
           <span>{new Date(`${game.game_date}T12:00:00`).toLocaleDateString('ca-ES')}</span>
           <strong>{isFinished ? 'FINALITZAT' : 'EN CURS'}</strong>
         </div>
-        <button className="button ghost-on-dark" onClick={undoLast}>Desfer última acció</button>
+        <div className="match-topbar-actions">
+          <button className="button ghost-on-dark" onClick={openRosterManager}>Jugadors i titulars</button>
+          <button className="button ghost-on-dark" onClick={undoLast}>Desfer última acció</button>
+        </div>
       </div>
 
       <section className="scoreboard">
@@ -549,10 +621,19 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
           <section className="panel rotation-panel">
             <div className="section-heading">
               <div><p className="eyebrow">ROTACIÓ ACTUAL</p><h2>Jugadors a pista</h2></div>
-              <span className="hint">Toca un jugador per fer una substitució</span>
+              <div className="rotation-heading-actions">
+                <span className="hint">Toca un jugador per fer una substitució</span>
+                <button className="button secondary compact" onClick={openRosterManager}>Editar quintet / plantilla</button>
+              </div>
             </div>
 
             <div className="court-grid">
+              {lineup.length === 0 && (
+                <button type="button" className="lineup-empty-state" onClick={openRosterManager}>
+                  <strong>Encara no hi ha cap jugador a pista</strong>
+                  <span>Obre “Jugadors i titulars” i selecciona els titulars quan els tinguis.</span>
+                </button>
+              )}
               {lineup.map((player) => {
                 const stats = playerStats.get(player.id)!
                 const alert = stats.stintSeconds > 180
@@ -586,7 +667,7 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
               })}
 
               {lineup.length < 5 && (
-                <div className="lineup-error">Hi ha {lineup.length} jugadors a pista. Revisa l’últim canvi.</div>
+                <div className="lineup-error">Hi ha {lineup.length} jugadors a pista. Completa o corregeix el quintet des de “Jugadors i titulars”.</div>
               )}
             </div>
           </section>
@@ -611,7 +692,7 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
                     </span>
                     <span className={`bench-foul-badge ${foulLevelClass(stats.fouls)}`}>F {stats.fouls}/5</span>
                     {renderPosition(player)}
-                    <button className="bench-edit" onClick={() => updatePlayer(player)}>Editar</button>
+                    <button className="bench-edit" onClick={openRosterManager}>Editar</button>
                     {disqualified && <span className="eliminated-tag">5 F · ELIMINAT</span>}
                   </div>
                 )
@@ -692,6 +773,134 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
         <button className="button danger-outline" onClick={resetGame}>Reiniciar dades del partit</button>
         <button className="button danger-outline" onClick={deleteGame}>Eliminar partit</button>
       </section>
+
+      {rosterOpen && (
+        <div className="modal-backdrop" onMouseDown={() => setRosterOpen(false)}>
+          <section className="modal roster-manager-modal" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-header roster-modal-header">
+              <div>
+                <p className="eyebrow">PARTIT EN CURS</p>
+                <h2>Jugadors i quintet inicial</h2>
+                <span>Pots afegir, editar o eliminar jugadors dels dos equips en qualsevol moment.</span>
+              </div>
+              <button className="modal-close" onClick={() => setRosterOpen(false)}>Tancar</button>
+            </div>
+
+            <div className="live-lineup-summary">
+              <div>
+                <span>QUINTET INICIAL KIDS&US</span>
+                <strong>{validInitialLineup.length}/5</strong>
+              </div>
+              <p>Seleccionar un titular aquí recalcula els minuts des de l’inici del partit. Pots corregir-ho encara que el partit ja hagi començat.</p>
+            </div>
+
+            <form className="live-add-player-form" onSubmit={addRosterPlayer}>
+              <div className="live-add-copy">
+                <span>AFEGIR JUGADOR</span>
+                <strong>Nou jugador al partit</strong>
+              </div>
+              <select
+                value={newRosterPlayer.side}
+                onChange={(event) => setNewRosterPlayer((previous) => ({ ...previous, side: event.target.value as Side }))}
+                aria-label="Equip"
+              >
+                <option value="home">Kids&Us</option>
+                <option value="away">Rival</option>
+              </select>
+              <input
+                value={newRosterPlayer.number}
+                onChange={(event) => setNewRosterPlayer((previous) => ({ ...previous, number: event.target.value }))}
+                placeholder="Dorsal"
+                aria-label="Dorsal nou jugador"
+              />
+              <input
+                value={newRosterPlayer.name}
+                onChange={(event) => setNewRosterPlayer((previous) => ({ ...previous, name: event.target.value }))}
+                placeholder="Nom del jugador"
+                aria-label="Nom nou jugador"
+              />
+              <select
+                className={`position-select pos-${newRosterPlayer.position}`}
+                value={newRosterPlayer.position}
+                onChange={(event) => setNewRosterPlayer((previous) => ({ ...previous, position: event.target.value as PlayerPosition }))}
+                aria-label="Posició nou jugador"
+              >
+                <option value="guard">Guard</option>
+                <option value="wing">Wing</option>
+                <option value="big">Big</option>
+              </select>
+              <button className="button primary">Afegir</button>
+            </form>
+
+            <div className="live-roster-columns">
+              {(['home', 'away'] as Side[]).map((side) => {
+                const teamPlayers = side === 'home' ? homePlayers : awayPlayers
+                return (
+                  <section className="live-roster-team" key={side}>
+                    <div className="live-roster-team-heading">
+                      <div>
+                        <span>{side === 'home' ? 'LOCAL' : 'RIVAL'}</span>
+                        <strong>{side === 'home' ? 'Kids&Us Manresa' : game.opponent_name}</strong>
+                      </div>
+                      <b>{teamPlayers.length} jugadors</b>
+                    </div>
+
+                    <div className="live-roster-list">
+                      {teamPlayers.length === 0 ? (
+                        <p className="empty-inline">Encara no hi ha jugadors.</p>
+                      ) : teamPlayers.map((player) => {
+                        const selectedStarter = validInitialLineup.includes(player.id)
+                        const starterBlocked = side === 'home' && !selectedStarter && validInitialLineup.length >= 5
+                        return (
+                          <div className="live-roster-row" key={player.id}>
+                            {side === 'home' ? (
+                              <button
+                                type="button"
+                                className={`live-starter-toggle ${selectedStarter ? 'selected' : ''}`}
+                                disabled={starterBlocked}
+                                onClick={() => void toggleInitialStarter(player)}
+                              >
+                                {selectedStarter ? 'Titular' : 'Banqueta'}
+                              </button>
+                            ) : (
+                              <span className="live-rival-tag">Rival</span>
+                            )}
+
+                            <input
+                              key={`${player.id}-number-${player.jersey_number}`}
+                              defaultValue={player.jersey_number}
+                              onBlur={(event) => void savePlayerPatch(player, { jersey_number: event.target.value })}
+                              aria-label={`Dorsal ${player.name}`}
+                              placeholder="#"
+                            />
+                            <input
+                              key={`${player.id}-name-${player.name}`}
+                              defaultValue={player.name}
+                              onBlur={(event) => void savePlayerPatch(player, { name: event.target.value })}
+                              aria-label={`Nom ${player.name}`}
+                            />
+                            <select
+                              className={`position-select pos-${player.position ?? 'guard'}`}
+                              value={player.position ?? 'guard'}
+                              onChange={(event) => void savePlayerPatch(player, { position: event.target.value as PlayerPosition })}
+                              aria-label={`Posició ${player.name}`}
+                            >
+                              <option value="guard">Guard</option>
+                              <option value="wing">Wing</option>
+                              <option value="big">Big</option>
+                            </select>
+                            <button type="button" className="live-delete-player" onClick={() => requestDeletePlayer(player)}>Eliminar</button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </section>
+                )
+              })}
+            </div>
+          </section>
+        </div>
+      )}
 
       {subOut && (
         <div className="modal-backdrop" onMouseDown={() => setSubOut(null)}>
