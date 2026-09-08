@@ -57,14 +57,24 @@ export const creationOrderedEvents = (events: GameEvent[]) =>
     (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
   )
 
+export const scoreDelta = (event: GameEvent) => {
+  if (event.event_type !== 'score' || !event.points) return 0
+
+  const explicitDelta = event.metadata?.score_delta
+  if (typeof explicitDelta === 'number' && Number.isFinite(explicitDelta)) return explicitDelta
+
+  return event.points
+}
+
 export const deriveScore = (events: GameEvent[]) => {
   let home = 0
   let away = 0
 
   for (const event of activeEvents(events)) {
     if (event.event_type !== 'score' || !event.side || !event.points) continue
-    if (event.side === 'home') home += event.points
-    else away += event.points
+    const delta = scoreDelta(event)
+    if (event.side === 'home') home = Math.max(0, home + delta)
+    else away = Math.max(0, away + delta)
   }
 
   return { home, away }
@@ -77,15 +87,16 @@ export const deriveScoreTimeline = (events: GameEvent[]): ScoreStep[] => {
 
   for (const event of creationOrderedEvents(events)) {
     if (event.event_type !== 'score' || !event.side || !event.points) continue
-    if (event.side === 'home') home += event.points
-    else away += event.points
+    const delta = scoreDelta(event)
+    if (event.side === 'home') home = Math.max(0, home + delta)
+    else away = Math.max(0, away + delta)
 
     steps.push({
       eventId: event.id,
       home,
       away,
       side: event.side,
-      points: event.points,
+      points: delta,
       createdAt: event.created_at,
     })
   }

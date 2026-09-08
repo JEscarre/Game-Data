@@ -153,3 +153,8 @@ Consulta `UPDATE_V3_5.md` per a la correcció d'assistència fluida sense recàr
 Consulta `UPDATE_V3_6.md`. Aquesta versió corregeix el bonus `2 FREE THROWS MADE` perquè sumi +1 a tots els jugadors presents, afegeix una còpia de seguretat manual completa d'entrenaments i posa `Afegir resultats` abans de `Resultats del dia`.
 
 Si ja tens v3.5, executa una vegada `supabase/migration_v3_6_ft_bonus_all.sql` després d'actualitzar el frontend.
+
+
+## Update v3.7
+
+Consulta `UPDATE_V3_7.md`. Aquesta versió afegeix un botó **-1** per a cada equip al marcador del partit, amb registre a la cronologia i sense necessitat de cap migració SQL.

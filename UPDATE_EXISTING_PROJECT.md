@@ -57,3 +57,8 @@ Si ja tens la v3.5 en producció:
 3. Executa `npm install`, `npm run check` i `npm run build`.
 4. Prova una competició de Free Throws amb `2 FREE THROWS MADE`: tots els presents han de rebre +1, també els que tinguin 4/3/2/1 punts base.
 5. Prova el botó `Còpia de seguretat` a Entrenaments i verifica que es descarrega un JSON amb totes les temporades i taules d'entrenament.
+
+
+## Actualització v3.7
+
+Substitueix els fitxers de frontend per la v3.7, conserva `.env.local` i executa `npm install`, `npm run check` i `npm run build`. **No cal executar cap SQL nou.** El nou botó `-1` utilitza la mateixa taula `game_events` i desa la direcció de la correcció a `metadata.score_delta`.

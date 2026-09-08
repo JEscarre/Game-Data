@@ -543,7 +543,7 @@ export function TrainingDashboard() {
       const backup = {
         format: 'kidsus-manresa-training-backup',
         schemaVersion: 2,
-        appVersion: '3.6.0',
+        appVersion: '3.7.0',
         exportedAt: new Date().toISOString(),
         rules: {
           competitionPoints: '4/3/2/1 segons la puntuació assignada',

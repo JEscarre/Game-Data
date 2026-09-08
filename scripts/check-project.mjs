@@ -21,6 +21,7 @@ const required = [
   'UPDATE_V3_4.md',
   'UPDATE_V3_5.md',
   'UPDATE_V3_6.md',
+  'UPDATE_V3_7.md',
   'supabase/migration_v3_6_ft_bonus_all.sql',
 ]
 
@@ -31,8 +32,8 @@ if (missing.length) {
 }
 
 const pkg = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8'))
-if (pkg.version !== '3.6.0') {
-  console.error('La versió del package no és 3.6.0.')
+if (pkg.version !== '3.7.0') {
+  console.error('La versió del package no és 3.7.0.')
   process.exit(1)
 }
 
@@ -70,6 +71,23 @@ for (const token of requiredMatchTokens) {
 }
 if (/\bprompt\s*\(/.test(matchSource)) {
   console.error('Encara hi ha prompts natius per editar jugadors al partit.')
+  process.exit(1)
+}
+
+const requiredScoreCorrectionTokens = [
+  'subtractPoint',
+  'score-minus',
+  'score_delta: -1',
+  'Restar 1 punt',
+]
+for (const token of requiredScoreCorrectionTokens) {
+  if (!matchSource.includes(token)) {
+    console.error(`No s’ha detectat el botó -1 de la v3.7: ${token}`)
+    process.exit(1)
+  }
+}
+if (!gameSource.includes('scoreDelta') || !gameSource.includes('metadata?.score_delta')) {
+  console.error('No s’ha detectat el càlcul de correccions -1 al marcador.')
   process.exit(1)
 }
 
@@ -135,4 +153,4 @@ if (/\bconfirm\s*\(/.test(allUiSource)) {
   process.exit(1)
 }
 
-console.log('Estructura v3.6 OK · bonus 2/2 per a tots els presents + backup complet + ordre de resultats corregit.')
+console.log('Estructura v3.7 OK · marcador amb botó -1 per equip + correcció registrada a la cronologia sense migració SQL.')

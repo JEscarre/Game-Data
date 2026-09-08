@@ -13,6 +13,7 @@ import {
   parseClock,
   periodDuration,
   periodLabel,
+  scoreDelta,
   timeoutSlotHalf,
   timeoutSlots,
   type TimeoutSlot,
@@ -135,6 +136,20 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
   }
 
   const addScore = (side: Side, points: number) => addEvent({ event_type: 'score', side, points })
+
+  const subtractPoint = (side: Side) => {
+    const currentScore = side === 'home' ? score.home : score.away
+    if (currentScore <= 0 || isFinished) return
+
+    // game_events.points is constrained to 1/2/3 in Supabase. We keep points=1
+    // and store the correction direction in metadata so no database migration is needed.
+    return addEvent({
+      event_type: 'score',
+      side,
+      points: 1,
+      metadata: { score_delta: -1, source: 'score_correction' },
+    })
+  }
 
   const addFoul = async (player: GamePlayer) => {
     const current = playerStats.get(player.id)?.fouls ?? 0
@@ -419,7 +434,10 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
     const player = players.find((item) => item.id === event.player_id)
     const related = players.find((item) => item.id === event.related_player_id)
 
-    if (event.event_type === 'score') return `${event.side === 'home' ? 'Kids&Us' : game.opponent_name} +${event.points}`
+    if (event.event_type === 'score') {
+      const delta = scoreDelta(event)
+      return `${event.side === 'home' ? 'Kids&Us' : game.opponent_name} ${delta > 0 ? '+' : ''}${delta}`
+    }
     if (event.event_type === 'foul') return `Falta · ${player?.jersey_number ? `#${player.jersey_number} ` : ''}${player?.name ?? 'Jugador'}`
     if (event.event_type === 'timeout') return `Temps mort · ${event.side === 'home' ? 'Kids&Us' : game.opponent_name}`
     if (event.event_type === 'substitution') return `Canvi · surt ${player?.name ?? '?'} · entra ${related?.name ?? '?'}`
@@ -562,6 +580,13 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
           <span className="score-label">KIDS&US MANRESA</span>
           <strong className="score-number">{score.home}</strong>
           <div className="score-buttons">
+            <button
+              className="score-minus"
+              disabled={isFinished || score.home <= 0}
+              onClick={() => subtractPoint('home')}
+              title="Restar 1 punt"
+              aria-label="Restar 1 punt a Kids&Us Manresa"
+            >-1</button>
             {[1, 2, 3].map((points) => (
               <button key={points} disabled={isFinished} onClick={() => addScore('home', points)}>+{points}</button>
             ))}
@@ -597,6 +622,13 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
           <span className="score-label">{game.opponent_name.toUpperCase()}</span>
           <strong className="score-number">{score.away}</strong>
           <div className="score-buttons">
+            <button
+              className="score-minus"
+              disabled={isFinished || score.away <= 0}
+              onClick={() => subtractPoint('away')}
+              title="Restar 1 punt"
+              aria-label={`Restar 1 punt a ${game.opponent_name}`}
+            >-1</button>
             {[1, 2, 3].map((points) => (
               <button key={points} disabled={isFinished} onClick={() => addScore('away', points)}>+{points}</button>
             ))}

@@ -229,6 +229,9 @@ h3 { font-size: .98rem; margin-bottom: 0; }
 .away-team .score-buttons { justify-content: flex-end; }
 .score-buttons button { border: 1px solid rgba(255,255,255,.16); min-width: 52px; min-height: 38px; border-radius: 9px; background: rgba(255,255,255,.07); color: white; font-weight: 800; }
 .score-buttons button:not(:disabled):hover { background: white; color: var(--navy); }
+.score-buttons button.score-minus { border-color: rgba(255,122,132,.42); background: rgba(214,47,58,.16); color: #ffd9dc; }
+.score-buttons button.score-minus:not(:disabled):hover { background: #fff0f1; color: var(--red-dark); border-color: #fff0f1; }
+.score-buttons button:disabled { opacity: .42; cursor: not-allowed; }
 .game-clock-box { padding: 11px 13px; display: grid; place-items: center; align-content: center; gap: 7px; background: white; border-left: 1px solid #d8dde4; border-right: 1px solid #d8dde4; }
 .period-pill { display: inline-grid; place-items: center; min-width: 43px; min-height: 24px; border-radius: 999px; padding: 0 9px; background: var(--red); color: white; font-family: 'Barlow Condensed', sans-serif; font-size: .8rem; font-weight: 800; letter-spacing: .06em; }
 .clock-main { font-family: 'Barlow Condensed', sans-serif; font-size: 3rem; line-height: .82; color: var(--navy); font-variant-numeric: tabular-nums; }
@@ -439,7 +442,7 @@ h3 { font-size: .98rem; margin-bottom: 0; }
   .scoreboard { grid-template-columns: 1fr 112px 1fr; }
   .score-label { font-size: .53rem; }
   .score-number { font-size: 2.65rem; }
-  .score-buttons button { min-width: 32px; min-height: 31px; font-size: .7rem; }
+  .score-buttons button { min-width: 27px; min-height: 31px; padding-inline: 5px; font-size: .68rem; }
   .game-clock-box { gap: 4px; }
   .period-pill { min-height: 20px; }
   .clock-main { font-size: 1.9rem; }
