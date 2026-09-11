@@ -2,7 +2,7 @@
 
 Web app responsive, optimitzada especialment per tablet, per registrar el seguiment dels partits.
 
-## Versió 3.3
+## Versió 3.8
 
 Aquesta versió incorpora:
 
@@ -19,6 +19,7 @@ Aquesta versió incorpora:
 - Minuts totals i temps consecutiu calculats a partir del rellotge de partit.
 - Avís visual quan un jugador supera 3:00 consecutius.
 - Marcador +1 / +2 / +3 per cada equip i cronologia del marcador.
+- Abans de començar es pot escollir si **Kids&Us és local o visitant**. El marcador, la cronologia, les faltes d’equip/bonus i els temps morts respecten l’ordre real local–visitant.
 - Faltes individuals dels dos equips i faltes d’equip automàtiques.
 - Faltes molt més visuals: indicador gran `F x/5` a pista i banqueta, més color progressiu d’1 a 5.
 - Bloqueig d’un jugador a partir de 5 faltes, amb possibilitat de corregir faltes.
@@ -74,6 +75,7 @@ kidsus-manresa-seguiment/
 │  ├─ migration_v2.sql
 │  ├─ migration_v3_training.sql
 │  ├─ migration_v3_2_training_ui.sql
+│  ├─ migration_v3_8_home_away.sql
 │  ├─ replace_training_with_HOJA1.sql
 │  └─ seed_training_excel.sql
 ├─ data/
@@ -96,6 +98,14 @@ supabase/seed_training_excel.sql
 La primera migració crea tota la infraestructura d’entrenaments. El seed carrega les dades recuperables de l’Excel de forma idempotent.
 
 Si encara vens de la v1, executa primer `supabase/migration_v2.sql` i després els dos fitxers anteriors. En una instal·lació nova, executa `supabase/schema.sql` i després `supabase/seed_training_excel.sql`.
+
+Si actualitzes una instal·lació existent a la **v3.8**, executa també una vegada:
+
+```text
+supabase/migration_v3_8_home_away.sql
+```
+
+La migració afegeix el costat de Kids&Us (`local` o `visitant`) sense esborrar cap dada. Els partits antics es mantenen com a Kids&Us local, que era el comportament de les versions anteriors.
 
 ## Variables d’entorn
 
@@ -158,3 +168,18 @@ Si ja tens v3.5, executa una vegada `supabase/migration_v3_6_ft_bonus_all.sql` d
 ## Update v3.7
 
 Consulta `UPDATE_V3_7.md`. Aquesta versió afegeix un botó **-1** per a cada equip al marcador del partit, amb registre a la cronologia i sense necessitat de cap migració SQL.
+
+## Update v3.8
+
+Consulta `UPDATE_V3_8.md`. Aquesta versió permet escollir abans del partit si **Kids&Us Manresa és local o visitant** i aplica aquesta decisió al marcador, cronologia, faltes d’equip/bonus i temps morts. Requereix executar una vegada `supabase/migration_v3_8_home_away.sql` en projectes ja existents.
+
+
+## Local / Visitant
+
+Des de la v3.8 es pot indicar abans del partit si Kids&Us és local o visitant. La v3.9 reforça aquest comportament a marcador, cronologia, faltes d’equip, bonus, temps morts i ordre visual de les plantilles. El bonus es mostra a l’equip que el rep quan l’oponent arriba a 4 faltes d’equip al període.
+
+Per validar el contracte Local / Visitant:
+
+```bash
+npm run test:home-away
+```

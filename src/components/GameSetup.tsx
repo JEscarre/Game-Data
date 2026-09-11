@@ -19,6 +19,7 @@ const positionLabel: Record<PlayerPosition, string> = {
 export function GameSetup({ game, players, onReload, onBack }: GameSetupProps) {
   const [opponentName, setOpponentName] = useState(game.opponent_name)
   const [gameDate, setGameDate] = useState(game.game_date)
+  const [teamSide, setTeamSide] = useState<Side>(game.team_side === 'away' ? 'away' : 'home')
   const [newPlayer, setNewPlayer] = useState({
     side: 'home' as Side,
     number: '',
@@ -30,13 +31,26 @@ export function GameSetup({ game, players, onReload, onBack }: GameSetupProps) {
   const [deleteGameOpen, setDeleteGameOpen] = useState(false)
   const [deleteBusy, setDeleteBusy] = useState(false)
 
-  const home = useMemo(() => players.filter((player) => player.side === 'home'), [players])
-  const away = useMemo(() => players.filter((player) => player.side === 'away'), [players])
+  // game_players.side conserva la convenció històrica de propietat de plantilla:
+  // home = Kids&Us, away = rival. team_side indica la posició física local/visitant.
+  const kidsPlayers = useMemo(() => players.filter((player) => player.side === 'home'), [players])
+  const rivalPlayers = useMemo(() => players.filter((player) => player.side === 'away'), [players])
 
   const saveGame = async () => {
     const { error } = await supabase
       .from('games')
-      .update({ opponent_name: opponentName.trim() || 'Rival', game_date: gameDate })
+      .update({ opponent_name: opponentName.trim() || 'Rival', game_date: gameDate, team_side: teamSide })
+      .eq('id', game.id)
+
+    if (error) return alert(error.message)
+    await onReload()
+  }
+
+  const selectTeamSide = async (side: Side) => {
+    setTeamSide(side)
+    const { error } = await supabase
+      .from('games')
+      .update({ opponent_name: opponentName.trim() || 'Rival', game_date: gameDate, team_side: side })
       .eq('id', game.id)
 
     if (error) return alert(error.message)
@@ -104,6 +118,7 @@ export function GameSetup({ game, players, onReload, onBack }: GameSetupProps) {
       .update({
         opponent_name: opponentName.trim() || 'Rival',
         game_date: gameDate,
+        team_side: teamSide,
         initial_lineup: starters,
         status: 'live',
         current_period: 1,
@@ -185,7 +200,13 @@ export function GameSetup({ game, players, onReload, onBack }: GameSetupProps) {
           <h1>Configura el partit</h1>
           <p className="muted">Pots començar el partit encara que la plantilla no estigui completa o no hagis triat els 5 titulars. Ho podràs editar amb el partit obert.</p>
         </div>
-        <div className="starter-count"><strong>{starters.length}/5</strong><span>titulars · opcional</span></div>
+        <div className={`starter-count ${starters.length === 5 ? 'complete' : ''}`} aria-label={`${starters.length} de 5 titulars seleccionats. Opcional`}>
+          <strong>{starters.length}<small>/5</small></strong>
+          <span className="starter-count-copy">
+            <b>Titulars</b>
+            <em>Opcional</em>
+          </span>
+        </div>
       </div>
 
       <section className="card setup-meta">
@@ -197,6 +218,27 @@ export function GameSetup({ game, players, onReload, onBack }: GameSetupProps) {
           <span>Data</span>
           <input type="date" value={gameDate} onChange={(event) => setGameDate(event.target.value)} onBlur={saveGame} />
         </label>
+        <div className="field team-side-field">
+          <span>Kids&Us juga com a</span>
+          <div className="team-side-selector" role="group" aria-label="Escull si Kids&Us és local o visitant">
+            <button
+              type="button"
+              className={teamSide === 'home' ? 'selected' : ''}
+              onClick={() => void selectTeamSide('home')}
+            >
+              <strong>Local</strong>
+              <small>Kids&Us a l’esquerra del marcador</small>
+            </button>
+            <button
+              type="button"
+              className={teamSide === 'away' ? 'selected' : ''}
+              onClick={() => void selectTeamSide('away')}
+            >
+              <strong>Visitant</strong>
+              <small>Kids&Us a la dreta del marcador</small>
+            </button>
+          </div>
+        </div>
       </section>
 
       <form className="card add-match-player" onSubmit={addPlayer}>
@@ -219,21 +261,22 @@ export function GameSetup({ game, players, onReload, onBack }: GameSetupProps) {
       </form>
 
       <div className="two-col setup-teams">
-        <section className="card">
-          <div className="section-heading">
-            <div><p className="eyebrow">LOCAL</p><h2>Kids&Us Manresa</h2></div>
-            <span>{home.length} jugadors</span>
-          </div>
-          {playerList(home, 'home')}
-        </section>
+        {(['home', 'away'] as Side[]).map((physicalSide) => {
+          const isKidsUs = physicalSide === teamSide
+          const rosterSide: Side = isKidsUs ? 'home' : 'away'
+          const teamPlayers = isKidsUs ? kidsPlayers : rivalPlayers
+          const teamName = isKidsUs ? 'Kids&Us Manresa' : (opponentName || 'Rival')
 
-        <section className="card">
-          <div className="section-heading">
-            <div><p className="eyebrow">RIVAL</p><h2>{opponentName || 'Rival'}</h2></div>
-            <span>{away.length} jugadors</span>
-          </div>
-          {playerList(away, 'away')}
-        </section>
+          return (
+            <section className="card" key={physicalSide}>
+              <div className="section-heading">
+                <div><p className="eyebrow">{physicalSide === 'home' ? 'LOCAL' : 'VISITANT'}</p><h2>{teamName}</h2></div>
+                <span>{teamPlayers.length} jugadors</span>
+              </div>
+              {playerList(teamPlayers, rosterSide)}
+            </section>
+          )
+        })}
       </div>
 
       <div className="sticky-action-bar">

@@ -7,6 +7,10 @@ import {
   deriveScore,
   deriveScoreTimeline,
   deriveTimeoutSlots,
+  kidsUsPhysicalSide,
+  isTeamInBonus,
+  physicalSideForPlayer,
+  teamNameForSide,
   formatClock,
   formatPlayed,
   nextThirtySeconds,
@@ -70,20 +74,28 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
   const scoreTimeline = useMemo(() => deriveScoreTimeline(events), [events])
   const playerStats = useMemo(() => derivePlayerStats(game, players, events), [game, players, events])
   const lineup = useMemo(() => currentLineup(game, players, events), [game, players, events])
-  const homePlayers = useMemo(() => players.filter((player) => player.side === 'home'), [players])
-  const awayPlayers = useMemo(() => players.filter((player) => player.side === 'away'), [players])
-  const bench = homePlayers.filter((player) => !playerStats.get(player.id)?.onCourt)
+  const kidsPlayers = useMemo(() => players.filter((player) => player.side === 'home'), [players])
+  const rivalPlayers = useMemo(() => players.filter((player) => player.side === 'away'), [players])
+  const kidsSide = kidsUsPhysicalSide(game)
+  const homeTeamName = teamNameForSide(game, 'home')
+  const awayTeamName = teamNameForSide(game, 'away')
+  const homeFoulPlayers = kidsSide === 'home' ? kidsPlayers : rivalPlayers
+  const awayFoulPlayers = kidsSide === 'away' ? kidsPlayers : rivalPlayers
+  const bench = kidsPlayers.filter((player) => !playerStats.get(player.id)?.onCourt)
   const fouls = useMemo(() => deriveFouls(events), [events])
   const timeoutState = useMemo(() => deriveTimeoutSlots(events), [events])
   const activeEvents = useMemo(() => events.filter((event) => !event.undone_at), [events])
   const teamFoulsHome = fouls.bySidePeriod.get(`home:${game.current_period}`) ?? 0
   const teamFoulsAway = fouls.bySidePeriod.get(`away:${game.current_period}`) ?? 0
+  // El BONUS es mostra al costat de l'equip que el rep: si el rival arriba a 4 faltes, aquest equip entra en bonus.
+  const homeInBonus = isTeamInBonus(teamFoulsAway)
+  const awayInBonus = isTeamInBonus(teamFoulsHome)
   const nextStep = nextThirtySeconds(game.current_clock_seconds)
   const currentHalf = game.current_period <= 2 ? 1 : 2
   const isFinished = game.status === 'finished'
   const validInitialLineup = useMemo(
-    () => (game.initial_lineup ?? []).filter((id) => homePlayers.some((player) => player.id === id)),
-    [game.initial_lineup, homePlayers],
+    () => (game.initial_lineup ?? []).filter((id) => kidsPlayers.some((player) => player.id === id)),
+    [game.initial_lineup, kidsPlayers],
   )
 
   const updateClock = async (period: number, clockSeconds: number, registerLineup = false, source = 'manual') => {
@@ -99,7 +111,7 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
       const { error: eventError } = await supabase.from('game_events').insert({
         game_id: game.id,
         event_type: 'lineup_check',
-        side: 'home',
+        side: kidsSide,
         period,
         clock_seconds: clockSeconds,
         metadata: { player_ids: ids, source },
@@ -158,11 +170,11 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
         title: 'Afegir una altra falta?',
         message: `${player.name} ja consta amb 5 faltes. Confirma només si vols corregir o registrar una situació excepcional.`,
         confirmLabel: 'Afegir falta',
-        action: async () => { await addEvent({ event_type: 'foul', side: player.side, player_id: player.id }) },
+        action: async () => { await addEvent({ event_type: 'foul', side: physicalSideForPlayer(game, player), player_id: player.id }) },
       })
       return
     }
-    await addEvent({ event_type: 'foul', side: player.side, player_id: player.id })
+    await addEvent({ event_type: 'foul', side: physicalSideForPlayer(game, player), player_id: player.id })
   }
 
   const removeLastFoul = async (player: GamePlayer) => {
@@ -217,7 +229,7 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
     const { error: eventError } = await supabase.from('game_events').insert({
       game_id: game.id,
       event_type: 'substitution',
-      side: 'home',
+      side: kidsSide,
       player_id: subOut.id,
       related_player_id: subIn.id,
       period: game.current_period,
@@ -436,10 +448,10 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
 
     if (event.event_type === 'score') {
       const delta = scoreDelta(event)
-      return `${event.side === 'home' ? 'Kids&Us' : game.opponent_name} ${delta > 0 ? '+' : ''}${delta}`
+      return `${event.side ? teamNameForSide(game, event.side) : 'Equip'} ${delta > 0 ? '+' : ''}${delta}`
     }
     if (event.event_type === 'foul') return `Falta · ${player?.jersey_number ? `#${player.jersey_number} ` : ''}${player?.name ?? 'Jugador'}`
-    if (event.event_type === 'timeout') return `Temps mort · ${event.side === 'home' ? 'Kids&Us' : game.opponent_name}`
+    if (event.event_type === 'timeout') return `Temps mort · ${event.side ? teamNameForSide(game, event.side) : 'Equip'}`
     if (event.event_type === 'substitution') return `Canvi · surt ${player?.name ?? '?'} · entra ${related?.name ?? '?'}`
 
     const source = event.metadata?.source
@@ -467,11 +479,11 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
       <div className="foul-team">
         <div className="section-heading compact-heading">
           <div>
-            <p className="eyebrow">{side === 'home' ? 'LOCAL' : 'RIVAL'}</p>
-            <h3>{side === 'home' ? 'Kids&Us Manresa' : game.opponent_name}</h3>
+            <p className="eyebrow">{side === 'home' ? 'LOCAL' : 'VISITANT'}</p>
+            <h3>{teamNameForSide(game, side)}</h3>
           </div>
-          <div className={`team-foul-badge ${teamFouls >= 5 ? 'warning' : ''}`}>
-            {periodLabel(game.current_period)} · <strong>{teamFouls}</strong> faltes d’equip
+          <div className={`team-foul-badge ${isTeamInBonus(teamFouls) ? 'warning' : ''}`}>
+            {periodLabel(game.current_period)} · <strong>{teamFouls}</strong> faltes d’equip{isTeamInBonus(teamFouls) ? ' · rival en bonus' : ''}
           </div>
         </div>
 
@@ -577,7 +589,7 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
 
       <section className="scoreboard">
         <div className="score-team home-team">
-          <span className="score-label">KIDS&US MANRESA</span>
+          <span className="score-label"><span>LOCAL · {homeTeamName.toUpperCase()}</span>{homeInBonus && <b className="bonus-indicator">BONUS</b>}</span>
           <strong className="score-number">{score.home}</strong>
           <div className="score-buttons">
             <button
@@ -585,13 +597,13 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
               disabled={isFinished || score.home <= 0}
               onClick={() => subtractPoint('home')}
               title="Restar 1 punt"
-              aria-label="Restar 1 punt a Kids&Us Manresa"
+              aria-label={`Restar 1 punt a ${homeTeamName}`}
             >-1</button>
             {[1, 2, 3].map((points) => (
               <button key={points} disabled={isFinished} onClick={() => addScore('home', points)}>+{points}</button>
             ))}
           </div>
-          <div className={`score-team-fouls ${teamFoulsHome >= 5 ? 'warning' : ''}`}>
+          <div className={`score-team-fouls ${isTeamInBonus(teamFoulsHome) ? 'warning' : ''}`}>
             <div><span>FALTES {periodLabel(game.current_period)}</span><strong>{teamFoulsHome}</strong></div>
             <div className="score-foul-meter" aria-label={`${teamFoulsHome} faltes d’equip`}>
               {[1, 2, 3, 4, 5].map((value) => <i key={value} className={value <= Math.min(teamFoulsHome, 5) ? 'filled' : ''} />)}
@@ -619,7 +631,7 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
         </div>
 
         <div className="score-team away-team">
-          <span className="score-label">{game.opponent_name.toUpperCase()}</span>
+          <span className="score-label"><span>VISITANT · {awayTeamName.toUpperCase()}</span>{awayInBonus && <b className="bonus-indicator">BONUS</b>}</span>
           <strong className="score-number">{score.away}</strong>
           <div className="score-buttons">
             <button
@@ -627,13 +639,13 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
               disabled={isFinished || score.away <= 0}
               onClick={() => subtractPoint('away')}
               title="Restar 1 punt"
-              aria-label={`Restar 1 punt a ${game.opponent_name}`}
+              aria-label={`Restar 1 punt a ${awayTeamName}`}
             >-1</button>
             {[1, 2, 3].map((points) => (
               <button key={points} disabled={isFinished} onClick={() => addScore('away', points)}>+{points}</button>
             ))}
           </div>
-          <div className={`score-team-fouls ${teamFoulsAway >= 5 ? 'warning' : ''}`}>
+          <div className={`score-team-fouls ${isTeamInBonus(teamFoulsAway) ? 'warning' : ''}`}>
             <div><span>FALTES {periodLabel(game.current_period)}</span><strong>{teamFoulsAway}</strong></div>
             <div className="score-foul-meter" aria-label={`${teamFoulsAway} faltes d’equip`}>
               {[1, 2, 3, 4, 5].map((value) => <i key={value} className={value <= Math.min(teamFoulsAway, 5) ? 'filled' : ''} />)}
@@ -738,8 +750,8 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
               <span className="hint">Vermell = gastat. Toca un gastat per corregir-lo.</span>
             </div>
             <div className="timeout-grid">
-              {renderTimeoutTeam('home', 'Kids&Us Manresa')}
-              {renderTimeoutTeam('away', game.opponent_name)}
+              {renderTimeoutTeam('home', `Local · ${homeTeamName}`)}
+              {renderTimeoutTeam('away', `Visitant · ${awayTeamName}`)}
             </div>
           </section>
 
@@ -761,8 +773,8 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
             <div className="section-heading">
               <div><p className="eyebrow">FALTES</p><h2>Dos equips</h2></div>
             </div>
-            {renderFoulTeam(homePlayers, 'home')}
-            {renderFoulTeam(awayPlayers, 'away')}
+            {renderFoulTeam(homeFoulPlayers, 'home')}
+            {renderFoulTeam(awayFoulPlayers, 'away')}
           </section>
         </aside>
 
@@ -792,7 +804,10 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
           </section>
 
           <section className="panel score-history-panel">
-            <div className="section-heading"><div><p className="eyebrow">MARCADOR</p><h2>Cronologia</h2></div></div>
+            <div className="section-heading">
+              <div><p className="eyebrow">MARCADOR · LOCAL — VISITANT</p><h2>Cronologia</h2></div>
+              <span className="score-history-legend">{homeTeamName} — {awayTeamName}</span>
+            </div>
             <div className="score-history">
               <span className="score-chip">0–0</span>
               {scoreTimeline.map((step) => <span className="score-chip" key={step.eventId}>{step.home}–{step.away}</span>)}
@@ -865,14 +880,16 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
             </form>
 
             <div className="live-roster-columns">
-              {(['home', 'away'] as Side[]).map((side) => {
-                const teamPlayers = side === 'home' ? homePlayers : awayPlayers
+              {(['home', 'away'] as Side[]).map((physicalSide) => {
+                const isKidsUs = physicalSide === kidsSide
+                const rosterSide: Side = isKidsUs ? 'home' : 'away'
+                const teamPlayers = isKidsUs ? kidsPlayers : rivalPlayers
                 return (
-                  <section className="live-roster-team" key={side}>
+                  <section className="live-roster-team" key={physicalSide}>
                     <div className="live-roster-team-heading">
                       <div>
-                        <span>{side === 'home' ? 'LOCAL' : 'RIVAL'}</span>
-                        <strong>{side === 'home' ? 'Kids&Us Manresa' : game.opponent_name}</strong>
+                        <span>{physicalSide === 'home' ? 'LOCAL' : 'VISITANT'}</span>
+                        <strong>{teamNameForSide(game, physicalSide)}</strong>
                       </div>
                       <b>{teamPlayers.length} jugadors</b>
                     </div>
@@ -882,10 +899,10 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
                         <p className="empty-inline">Encara no hi ha jugadors.</p>
                       ) : teamPlayers.map((player) => {
                         const selectedStarter = validInitialLineup.includes(player.id)
-                        const starterBlocked = side === 'home' && !selectedStarter && validInitialLineup.length >= 5
+                        const starterBlocked = rosterSide === 'home' && !selectedStarter && validInitialLineup.length >= 5
                         return (
                           <div className="live-roster-row" key={player.id}>
-                            {side === 'home' ? (
+                            {rosterSide === 'home' ? (
                               <button
                                 type="button"
                                 className={`live-starter-toggle ${selectedStarter ? 'selected' : ''}`}

@@ -62,3 +62,15 @@ Si ja tens la v3.5 en producció:
 ## Actualització v3.7
 
 Substitueix els fitxers de frontend per la v3.7, conserva `.env.local` i executa `npm install`, `npm run check` i `npm run build`. **No cal executar cap SQL nou.** El nou botó `-1` utilitza la mateixa taula `game_events` i desa la direcció de la correcció a `metadata.score_delta`.
+
+## Actualització v3.8 · Local / visitant
+
+Si ja tens la v3.7 en producció:
+
+1. Substitueix els fitxers del projecte per la carpeta v3.8 conservant `.env.local`.
+2. A `Supabase → SQL Editor`, executa una vegada `supabase/migration_v3_8_home_away.sql`.
+3. Executa `npm install`, `npm run check` i `npm run build`.
+4. Crea un partit de prova i comprova els dos casos: Kids&Us **Local** i Kids&Us **Visitant**.
+5. Verifica que el marcador i la cronologia sempre es mostren en ordre **LOCAL — VISITANT** i que les faltes/bonus corresponen al costat correcte.
+
+La migració conserva les dades existents. Els partits anteriors queden com a Kids&Us local, que era el comportament de la v3.7 i anteriors.

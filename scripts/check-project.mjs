@@ -22,7 +22,12 @@ const required = [
   'UPDATE_V3_5.md',
   'UPDATE_V3_6.md',
   'UPDATE_V3_7.md',
+  'UPDATE_V3_8.md',
+  'UPDATE_V3_9.md',
+  'HOME_AWAY_AUDIT.md',
+  'scripts/test-home-away.mjs',
   'supabase/migration_v3_6_ft_bonus_all.sql',
+  'supabase/migration_v3_8_home_away.sql',
 ]
 
 const missing = required.filter((file) => !fs.existsSync(path.resolve(file)))
@@ -32,8 +37,8 @@ if (missing.length) {
 }
 
 const pkg = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8'))
-if (pkg.version !== '3.7.0') {
-  console.error('La versió del package no és 3.7.0.')
+if (pkg.version !== '3.9.0') {
+  console.error('La versió del package no és 3.9.0.')
   process.exit(1)
 }
 
@@ -51,6 +56,12 @@ if (setupSource.includes("starters.length !== 5") || setupSource.includes('home.
 if (!setupSource.includes('Pots començar el partit encara que la plantilla no estigui completa')) {
   console.error('No s’ha detectat el flux de començament flexible.')
   process.exit(1)
+}
+for (const token of ['team_side', 'Kids&Us juga com a', "selectTeamSide('away')"]) {
+  if (!setupSource.includes(token)) {
+    console.error(`No s’ha detectat la selecció local/visitant v3.8: ${token}`)
+    process.exit(1)
+  }
 }
 
 const matchSource = fs.readFileSync(path.resolve('src/components/MatchConsole.tsx'), 'utf8')
@@ -88,6 +99,27 @@ for (const token of requiredScoreCorrectionTokens) {
 }
 if (!gameSource.includes('scoreDelta') || !gameSource.includes('metadata?.score_delta')) {
   console.error('No s’ha detectat el càlcul de correccions -1 al marcador.')
+  process.exit(1)
+}
+for (const token of ['kidsUsPhysicalSide', 'physicalSideForPlayer', 'teamNameForSide']) {
+  if (!gameSource.includes(token) || !matchSource.includes(token)) {
+    console.error(`No s’ha detectat el mapatge local/visitant v3.8: ${token}`)
+    process.exit(1)
+  }
+}
+
+for (const token of ['isTeamInBonus', 'homeInBonus', 'awayInBonus', 'bonus-indicator']) {
+  if (!gameSource.includes(token) && !matchSource.includes(token)) {
+    console.error(`No s’ha detectat la revisió de bonus v3.9: ${token}`)
+    process.exit(1)
+  }
+}
+if (!setupSource.includes('starter-count-copy') || !setupSource.includes("(['home', 'away'] as Side[]).map((physicalSide)")) {
+  console.error('No s’ha detectat la millora visual de titulars o l’ordre físic local/visitant de la v3.9.')
+  process.exit(1)
+}
+if (!matchSource.includes('const rosterSide: Side = isKidsUs') || !matchSource.includes("physicalSideForPlayer(game, player)")) {
+  console.error('El gestor de plantilla/faltes no conserva el mapatge físic local/visitant de la v3.9.')
   process.exit(1)
 }
 
@@ -153,4 +185,4 @@ if (/\bconfirm\s*\(/.test(allUiSource)) {
   process.exit(1)
 }
 
-console.log('Estructura v3.7 OK · marcador amb botó -1 per equip + correcció registrada a la cronologia sense migració SQL.')
+console.log('Estructura v3.9 OK · titulars millorats i contracte local/visitant reforçat a marcador, cronologia, faltes/bonus, temps morts i plantilles.')

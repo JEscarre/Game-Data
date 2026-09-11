@@ -12,6 +12,26 @@ export const elapsedAt = (period: number, clockSeconds: number) => {
 
 export const periodLabel = (period: number) => (period <= 4 ? `Q${period}` : `OT${period - 4}`)
 
+// game_players.side keeps the legacy team ownership convention used by the app:
+// `home` = Kids&Us and `away` = rival. The actual court side is stored on the game.
+// This keeps every existing roster compatible while score/foul/timeout events use
+// true home/away semantics.
+export const kidsUsPhysicalSide = (game: Pick<Game, 'team_side'>): Side =>
+  game.team_side === 'away' ? 'away' : 'home'
+
+export const rivalPhysicalSide = (game: Pick<Game, 'team_side'>): Side =>
+  kidsUsPhysicalSide(game) === 'home' ? 'away' : 'home'
+
+export const teamNameForSide = (game: Pick<Game, 'team_side' | 'opponent_name'>, side: Side) =>
+  side === kidsUsPhysicalSide(game) ? 'Kids&Us Manresa' : (game.opponent_name || 'Rival')
+
+export const physicalSideForPlayer = (game: Pick<Game, 'team_side'>, player: Pick<GamePlayer, 'side'>): Side =>
+  player.side === 'home' ? kidsUsPhysicalSide(game) : rivalPhysicalSide(game)
+
+// FIBA: després de 4 faltes d'equip en un període, el rival entra en bonus
+// (la següent falta d'equip és penalitzada amb tirs lliures).
+export const isTeamInBonus = (opponentTeamFouls: number) => opponentTeamFouls >= 4
+
 export const formatClock = (seconds: number) => {
   const safe = Math.max(0, Math.round(seconds))
   const minutes = Math.floor(safe / 60)

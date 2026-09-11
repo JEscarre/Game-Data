@@ -7,6 +7,7 @@ export interface Game {
   id: string
   opponent_name: string
   game_date: string
+  team_side: Side
   status: GameStatus
   current_period: number
   current_clock_seconds: number

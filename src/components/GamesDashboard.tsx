@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { teamNameForSide } from '../lib/game'
 import type { Game } from '../types'
 import { ConfirmDialog } from './ConfirmDialog'
 
@@ -91,9 +92,9 @@ export function GamesDashboard({ onOpenGame }: GamesDashboardProps) {
                   <time>{new Date(`${game.game_date}T12:00:00`).toLocaleDateString('ca-ES')}</time>
                 </div>
                 <div className="game-versus">
-                  <span>Kids&Us Manresa</span>
+                  <span>Local · {teamNameForSide(game, 'home')}</span>
                   <b>vs</b>
-                  <strong>{game.opponent_name || 'Rival'}</strong>
+                  <strong>Visitant · {teamNameForSide(game, 'away')}</strong>
                 </div>
                 <span className="game-open">Obrir partit</span>
               </button>

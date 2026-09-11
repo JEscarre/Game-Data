@@ -46,3 +46,13 @@ Si el projecte ja tenia la versió de partits en producció, **no tornis a execu
 El seed és idempotent: utilitza `source_key` i es pot tornar a executar si cal. Crea la temporada 2026-27, el roster importat i les dades històriques recuperables de l’Excel.
 
 Per una base de dades nova, executa `supabase/schema.sql` i després `supabase/seed_training_excel.sql`.
+
+## Actualització v3.8 · Local / visitant
+
+En una base de dades que ja existia abans de la v3.8, executa una vegada:
+
+```text
+supabase/migration_v3_8_home_away.sql
+```
+
+Aquesta migració afegeix `games.team_side` i conserva totes les dades. Els partits antics queden amb Kids&Us com a local. En una instal·lació nova no cal executar-la separadament perquè `supabase/schema.sql` ja inclou el camp.

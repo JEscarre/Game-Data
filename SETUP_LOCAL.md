@@ -46,3 +46,7 @@ npm run preview
 ## Canvis v3
 
 Després d’actualitzar la carpeta, executa `npm install` i `npm run build`. Si la base de dades ja existia, recorda executar `supabase/migration_v3_training.sql` i `supabase/seed_training_excel.sql` abans d’utilitzar la pestanya **Entrenaments**.
+
+## Actualització v3.8
+
+Si aquesta carpeta substitueix una v3.7 o anterior, abans d'utilitzar la nova selecció **Local / Visitant** executa una vegada `supabase/migration_v3_8_home_away.sql` al SQL Editor de Supabase.

@@ -1,13 +1,14 @@
 {
   "name": "kidsus-manresa-game-data",
   "private": true,
-  "version": "3.7.0",
+  "version": "3.9.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "check": "node scripts/check-project.mjs"
+    "check": "node scripts/check-project.mjs && node scripts/test-home-away.mjs",
+    "test:home-away": "node scripts/test-home-away.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.0.0",

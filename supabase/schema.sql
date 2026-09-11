@@ -7,6 +7,7 @@ create table if not exists public.games (
   id uuid primary key default gen_random_uuid(),
   opponent_name text not null default 'Rival',
   game_date date not null default current_date,
+  team_side text not null default 'home' check (team_side in ('home', 'away')),
   status text not null default 'draft' check (status in ('draft', 'live', 'finished')),
   current_period integer not null default 1 check (current_period >= 1),
   current_clock_seconds integer not null default 600 check (current_clock_seconds >= 0),
@@ -14,6 +15,26 @@ create table if not exists public.games (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Compatibilitat si l'esquema complet s'executa sobre una instal·lació anterior.
+alter table public.games add column if not exists team_side text not null default 'home';
+
+update public.games
+set team_side = 'home'
+where team_side not in ('home', 'away');
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'games_team_side_check'
+      and conrelid = 'public.games'::regclass
+  ) then
+    alter table public.games
+      add constraint games_team_side_check
+      check (team_side in ('home', 'away'));
+  end if;
+end $$;
 
 create table if not exists public.game_players (
   id uuid primary key default gen_random_uuid(),
