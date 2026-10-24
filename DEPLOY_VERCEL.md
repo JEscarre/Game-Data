@@ -1,3 +1,5 @@
+> **v3.10.1:** Abans de desplegar, executa `supabase/migration_v3_10_reliability.sql` a Supabase. Vegeu `UPDATE_V3_10.md`.
+
 # GitHub + Vercel
 
 ## GitHub

@@ -2,7 +2,16 @@
 
 Web app responsive, optimitzada especialment per tablet, per registrar el seguiment dels partits.
 
-## Versió 3.8
+## Versió 3.10 · correccions de fiabilitat
+
+**IMPORTANT PER ACTUALITZAR:** llegeix [UPDATE_V3_10.md](UPDATE_V3_10.md) i executa `supabase/migration_v3_10_reliability.sql` **abans** de publicar la nova versió de l'aplicació. No elimina dades existents.
+
+- Alta de diversos resultats de competició sense esborrar la puntuació d'altres jugadors.
+- Operacions crítiques dels partits atòmiques a Supabase; protecció de pulsacions repetides.
+- Recuperació del partit després de recarregar la pestanya, sincronització reforçada i paginació de dades d'entrenaments.
+- Tests: `npm run check`, compilació: `npm run build`.
+
+## Funcionalitats heretades (v3.8–v3.9)
 
 Aquesta versió incorpora:
 

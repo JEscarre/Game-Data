@@ -26,6 +26,8 @@ const required = [
   'UPDATE_V3_9.md',
   'HOME_AWAY_AUDIT.md',
   'scripts/test-home-away.mjs',
+  'scripts/test-reliability.mjs',
+  'supabase/migration_v3_10_reliability.sql',
   'supabase/migration_v3_6_ft_bonus_all.sql',
   'supabase/migration_v3_8_home_away.sql',
 ]
@@ -37,8 +39,8 @@ if (missing.length) {
 }
 
 const pkg = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8'))
-if (pkg.version !== '3.9.0') {
-  console.error('La versió del package no és 3.9.0.')
+if (pkg.version !== '3.10.1') {
+  console.error('La versió del package no és 3.10.1.')
   process.exit(1)
 }
 
@@ -185,4 +187,4 @@ if (/\bconfirm\s*\(/.test(allUiSource)) {
   process.exit(1)
 }
 
-console.log('Estructura v3.9 OK · titulars millorats i contracte local/visitant reforçat a marcador, cronologia, faltes/bonus, temps morts i plantilles.')
+console.log('Estructura v3.10.1 OK · titulars millorats i contracte local/visitant reforçat a marcador, cronologia, faltes/bonus, temps morts i plantilles.')

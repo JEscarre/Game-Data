@@ -1,3 +1,5 @@
+> **v3.10.1:** Per actualitzar un projecte existent o completar una instal·lació nova, executa també `supabase/migration_v3_10_reliability.sql`; vegeu `UPDATE_V3_10.md`.
+
 # Supabase · Game Data v3
 
 ## Si ja vas executar la primera versió

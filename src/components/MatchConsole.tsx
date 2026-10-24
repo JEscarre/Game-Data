@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useMemo, useState } from 'react'
+import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import {
   currentLineup,
@@ -58,6 +58,26 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
   const [tab, setTab] = useState<'control' | 'fouls' | 'timeline'>('control')
   const [confirmState, setConfirmState] = useState<MatchConfirmState | null>(null)
   const [confirmBusy, setConfirmBusy] = useState(false)
+  const [actionSaving, setActionSaving] = useState(false)
+  const actionInFlight = useRef(false)
+  const runMatchAction = async (action: () => Promise<void>) => {
+    // Guard synchronous double-taps: one operation must finish before the next starts.
+    if (actionInFlight.current) return
+    actionInFlight.current = true
+    setActionSaving(true)
+    try {
+      await action()
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'No s’ha pogut desar l’acció. Revisa la connexió i torna-ho a provar.')
+      await onReload()
+    } finally {
+      actionInFlight.current = false
+      setActionSaving(false)
+    }
+  }
+  const requireSaved = (error: { message: string } | null) => {
+    if (error) throw new Error(error.message)
+  }
   const [rosterOpen, setRosterOpen] = useState(false)
   const [newRosterPlayer, setNewRosterPlayer] = useState({
     side: 'home' as Side,
@@ -99,28 +119,22 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
   )
 
   const updateClock = async (period: number, clockSeconds: number, registerLineup = false, source = 'manual') => {
-    const { error } = await supabase
-      .from('games')
-      .update({ current_period: period, current_clock_seconds: clockSeconds })
-      .eq('id', game.id)
-
-    if (error) return alert(error.message)
-
-    if (registerLineup) {
-      const ids = lineup.map((player) => player.id)
-      const { error: eventError } = await supabase.from('game_events').insert({
-        game_id: game.id,
-        event_type: 'lineup_check',
-        side: kidsSide,
-        period,
-        clock_seconds: clockSeconds,
-        metadata: { player_ids: ids, source },
+    await runMatchAction(async () => {
+      if (!registerLineup) throw new Error('Cal guardar sempre el rellotge amb la confirmació de pista.')
+      const { error } = await supabase.rpc('record_game_clock', {
+        p_game_id: game.id,
+        p_action_id: crypto.randomUUID(),
+        p_period: period,
+        p_clock_seconds: clockSeconds,
+        p_player_ids: lineup.map((player) => player.id),
+        p_source: source,
+        p_expected_period: game.current_period,
+        p_expected_clock_seconds: game.current_clock_seconds,
       })
-      if (eventError) return alert(eventError.message)
-    }
-
-    setClockDraft(formatClock(clockSeconds))
-    await onReload()
+      requireSaved(error)
+      setClockDraft(formatClock(clockSeconds))
+      await onReload()
+    })
   }
 
   const saveClockDraft = async () => {
@@ -135,16 +149,20 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
   }
 
   const addEvent = async (payload: Partial<GameEvent>) => {
-    const { error } = await supabase.from('game_events').insert({
-      game_id: game.id,
-      period: game.current_period,
-      clock_seconds: game.current_clock_seconds,
-      metadata: {},
-      ...payload,
+    await runMatchAction(async () => {
+      if (!payload.event_type) throw new Error('Falta el tipus d’acció.')
+      const { error } = await supabase.rpc('record_game_event', {
+        p_game_id: game.id,
+        p_action_id: crypto.randomUUID(),
+        p_event_type: payload.event_type,
+        p_side: payload.side ?? null,
+        p_player_id: payload.player_id ?? null,
+        p_points: payload.points ?? null,
+        p_metadata: payload.metadata ?? {},
+      })
+      requireSaved(error)
+      await onReload()
     })
-
-    if (error) return alert(error.message)
-    await onReload()
   }
 
   const addScore = (side: Side, points: number) => addEvent({ event_type: 'score', side, points })
@@ -183,18 +201,14 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]
 
     if (!last) return
-    const { error } = await supabase.rpc('undo_event', { p_event_id: last.id })
-    if (error) return alert(error.message)
-    await onReload()
+    await undoSpecific(last.id)
   }
 
   const toggleTimeout = async (side: Side, slot: TimeoutSlot) => {
     const existing = timeoutState[side].get(slot)
 
     if (existing) {
-      const { error } = await supabase.rpc('undo_event', { p_event_id: existing.id })
-      if (error) return alert(error.message)
-      await onReload()
+      await undoSpecific(existing.id)
       return
     }
 
@@ -226,77 +240,41 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
     const incomingStats = playerStats.get(subIn.id)
     if ((incomingStats?.fouls ?? 0) >= 5) return alert(`${subIn.name} té 5 faltes i no pot tornar a pista.`)
 
-    const { error: eventError } = await supabase.from('game_events').insert({
-      game_id: game.id,
-      event_type: 'substitution',
-      side: kidsSide,
-      player_id: subOut.id,
-      related_player_id: subIn.id,
-      period: game.current_period,
-      clock_seconds: parsed,
-      metadata: {},
+    await runMatchAction(async () => {
+      const { error } = await supabase.rpc('record_game_substitution', {
+        p_game_id: game.id,
+        p_action_id: crypto.randomUUID(),
+        p_out_id: subOut.id,
+        p_in_id: subIn.id,
+        p_clock_seconds: parsed,
+        p_expected_period: game.current_period,
+        p_expected_clock_seconds: game.current_clock_seconds,
+      })
+      requireSaved(error)
+      setSubOut(null)
+      setSubIn(null)
+      setSubClock(formatClock(parsed))
+      setClockDraft(formatClock(parsed))
+      await onReload()
     })
-
-    if (eventError) return alert(eventError.message)
-
-    const { error: gameError } = await supabase
-      .from('games')
-      .update({ current_clock_seconds: parsed })
-      .eq('id', game.id)
-
-    if (gameError) return alert(gameError.message)
-
-    setSubOut(null)
-    setSubIn(null)
-    setSubClock(formatClock(parsed))
-    setClockDraft(formatClock(parsed))
-    await onReload()
-  }
-
-  const restoreClockAfterUndo = async (eventId: string) => {
-    const clockEvents = activeEvents
-      .filter((event) => event.id !== eventId && (event.event_type === 'substitution' || event.event_type === 'lineup_check'))
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-
-    const previous = clockEvents[0]
-    const period = previous?.period ?? 1
-    const clockSeconds = previous?.clock_seconds ?? 600
-
-    const { error } = await supabase
-      .from('games')
-      .update({ current_period: period, current_clock_seconds: clockSeconds })
-      .eq('id', game.id)
-
-    if (error) alert(error.message)
   }
 
   const undoLast = async () => {
-    const target = [...activeEvents].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]
-    const { data, error } = await supabase.rpc('undo_last_event', { p_game_id: game.id })
-    if (error) return alert(error.message)
-    if (!data) return alert('No hi ha cap acció per desfer.')
-
-    if (target && (target.event_type === 'substitution' || target.event_type === 'lineup_check')) {
-      await restoreClockAfterUndo(target.id)
-    }
-
-    await onReload()
+    await runMatchAction(async () => {
+      const { data, error } = await supabase.rpc('undo_game_action', { p_game_id: game.id })
+      requireSaved(error)
+      if (!data) return alert('No hi ha cap acció per desfer.')
+      await onReload()
+    })
   }
 
   const undoSpecific = async (eventId: string) => {
-    const target = activeEvents.find((event) => event.id === eventId)
-    const latestClockEvent = [...activeEvents]
-      .filter((event) => event.event_type === 'substitution' || event.event_type === 'lineup_check')
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]
-
-    const { error } = await supabase.rpc('undo_event', { p_event_id: eventId })
-    if (error) return alert(error.message)
-
-    if (target && latestClockEvent?.id === target.id) {
-      await restoreClockAfterUndo(target.id)
-    }
-
-    await onReload()
+    await runMatchAction(async () => {
+      const { data, error } = await supabase.rpc('undo_game_action', { p_game_id: game.id, p_event_id: eventId })
+      requireSaved(error)
+      if (!data) throw new Error('Aquesta acció ja s’ha desfet en un altre dispositiu.')
+      await onReload()
+    })
   }
 
   const nextPeriod = async () => {
@@ -571,7 +549,8 @@ export function MatchConsole({ game, players, events, onReload, onBack }: MatchC
   )
 
   return (
-    <main className="match-shell">
+    <main className={`match-shell ${actionSaving ? 'match-action-saving' : ''}`} aria-busy={actionSaving}>
+      {actionSaving && <div className="match-save-banner" role="status">Desant acció al servidor…</div>}
       <div className="match-topbar">
         <div className="match-back-brand">
           <img src="/kids-us-manresa.png" alt="Kids&Us Manresa" />

@@ -1206,3 +1206,12 @@ h3 { font-size: .98rem; margin-bottom: 0; }
 .training-backup-button:hover { border-color: rgba(255,255,255,.42); background: rgba(255,255,255,.16); }
 .training-backup-button:disabled { opacity: .65; }
 .competitions-panel .daily-results-summary { margin-top: 0; }
+
+/* v3.10: avoid double-taps while a critical match action is being committed. */
+.match-shell.match-action-saving button { pointer-events: none; }
+.match-save-banner { position: sticky; top: 0; z-index: 200; padding: 0.6rem 1rem;
+  text-align: center; background: #fff3ca; color: #593d00; font-weight: 700; }
+.competition-autosave-status.error { flex-wrap: wrap; gap: 0.5rem; }
+.competition-autosave-status.error button { margin-left: auto; }
+.sync-warning { padding: 0.7rem 1rem; background: #ffe6ce; color: #723c04; font-weight: 650; }
+.sync-warning button { margin-left: 1rem; text-decoration: underline; cursor: pointer; }

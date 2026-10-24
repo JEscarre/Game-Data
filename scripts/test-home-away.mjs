@@ -19,6 +19,7 @@ try {
     '--moduleResolution', 'Bundler',
     '--outDir', temp,
     '--skipLibCheck',
+    '--typeRoots', path.join(temp, 'empty-types'),
     '--strict',
   ], { cwd: root, stdio: 'pipe' })
 

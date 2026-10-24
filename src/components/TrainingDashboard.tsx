@@ -59,6 +59,29 @@ const fetchAllTrainingRows = async <T,>(table: string): Promise<T[]> => {
   return rows
 }
 
+// Supabase limits a query to 1,000 records by default. Do not silently lose
+// historic attendance or results once a season grows beyond that size.
+const fetchLinkedRows = async <T,>(
+  table: string, foreignKey: string, ids: string[], orderKeys: string[],
+): Promise<T[]> => {
+  const all: T[] = []
+  const batchSize = 40
+  const pageSize = 500
+  for (let offset = 0; offset < ids.length; offset += batchSize) {
+    const batch = ids.slice(offset, offset + batchSize)
+    for (let from = 0; ; from += pageSize) {
+      let query = supabase.from(table).select('*').in(foreignKey, batch)
+      for (const key of orderKeys) query = query.order(key)
+      const { data, error } = await query.range(from, from + pageSize - 1)
+      if (error) throw error
+      const page = (data ?? []) as T[]
+      all.push(...page)
+      if (page.length < pageSize) break
+    }
+  }
+  return all
+}
+
 export function TrainingDashboard() {
   const [seasons, setSeasons] = useState<TrainingSeason[]>([])
   const [seasonId, setSeasonId] = useState('')
@@ -82,6 +105,13 @@ export function TrainingDashboard() {
   const [backupBusy, setBackupBusy] = useState(false)
   const [competitionSaveState, setCompetitionSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const competitionSaveChain = useRef<Promise<void>>(Promise.resolve())
+  const pendingCompetitionWrites = useRef(0)
+  const saveRevision = useRef(0)
+  const failedCompetitionWrites = useRef(new Map<string, () => Promise<void>>())
+  const loadRevision = useRef(0)
+  const activeSeason = useRef(seasonId)
+  activeSeason.current = seasonId
+  const reloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const loadSeasons = useCallback(async () => {
     const { data, error } = await supabase
@@ -97,6 +127,7 @@ export function TrainingDashboard() {
 
   const loadSeasonData = useCallback(async (silent = false) => {
     if (!seasonId) return
+    const requestId = ++loadRevision.current
     if (!silent) setLoading(true)
 
     const [playersResult, sessionsResult] = await Promise.all([
@@ -122,39 +153,32 @@ export function TrainingDashboard() {
     let nextResults: TrainingCompetitionResult[] = []
     let nextImportedPoints: TrainingImportedPoint[] = []
 
-    if (sessionIds.length) {
-      const [attendanceResult, competitionsResult, importedPointsResult] = await Promise.all([
-        supabase.from('training_attendance').select('*').in('session_id', sessionIds),
-        supabase.from('training_competitions').select('*').in('session_id', sessionIds).order('created_at'),
-        supabase.from('training_imported_points').select('*').in('session_id', sessionIds),
-      ])
-      if (attendanceResult.error) {
-        if (!silent) setLoading(false)
-        return alert(attendanceResult.error.message)
-      }
-      if (competitionsResult.error) {
-        if (!silent) setLoading(false)
-        return alert(competitionsResult.error.message)
-      }
-      if (importedPointsResult.error) {
-        if (!silent) setLoading(false)
-        return alert(importedPointsResult.error.message)
-      }
-      nextAttendance = (attendanceResult.data ?? []) as TrainingAttendance[]
-      nextCompetitions = (competitionsResult.data ?? []) as TrainingCompetition[]
-      nextImportedPoints = (importedPointsResult.data ?? []) as TrainingImportedPoint[]
-
-      const competitionIds = nextCompetitions.map((competition) => competition.id)
-      if (competitionIds.length) {
-        const { data, error } = await supabase.from('training_competition_results').select('*').in('competition_id', competitionIds)
-        if (error) {
-          if (!silent) setLoading(false)
-          return alert(error.message)
+    try {
+      if (sessionIds.length) {
+        const [fetchedAttendance, fetchedCompetitions, fetchedImported] = await Promise.all([
+          fetchLinkedRows<TrainingAttendance>('training_attendance', 'session_id', sessionIds, ['session_id', 'player_id']),
+          fetchLinkedRows<TrainingCompetition>('training_competitions', 'session_id', sessionIds, ['session_id', 'id']),
+          fetchLinkedRows<TrainingImportedPoint>('training_imported_points', 'session_id', sessionIds, ['session_id', 'player_id', 'category']),
+        ])
+        nextAttendance = fetchedAttendance
+        nextCompetitions = fetchedCompetitions
+        nextImportedPoints = fetchedImported
+        const competitionIds = nextCompetitions.map((competition) => competition.id)
+        if (competitionIds.length) {
+          nextResults = await fetchLinkedRows<TrainingCompetitionResult>(
+            'training_competition_results', 'competition_id', competitionIds, ['competition_id', 'player_id'],
+          )
         }
-        nextResults = (data ?? []) as TrainingCompetitionResult[]
       }
+    } catch (error) {
+      if (requestId !== loadRevision.current || activeSeason.current !== seasonId) return
+      if (!silent) setLoading(false)
+      alert(error instanceof Error ? error.message : 'No s’han pogut recuperar totes les dades de la temporada.')
+      return
     }
 
+    // A slower, older Realtime fetch must never overwrite newer data or another season.
+    if (requestId !== loadRevision.current || activeSeason.current !== seasonId) return
     setPlayers(nextPlayers)
     setSessions(nextSessions)
     setAttendance(nextAttendance)
@@ -173,9 +197,16 @@ export function TrainingDashboard() {
     void loadSeasonData()
     if (!seasonId) return
 
+    const requestReload = () => {
+      if (reloadTimer.current) clearTimeout(reloadTimer.current)
+      reloadTimer.current = setTimeout(() => {
+        if (pendingCompetitionWrites.current === 0) void loadSeasonData(true)
+      }, 350)
+    }
+
     const patchAttendanceFromRealtime = (payload: { eventType: string; new: unknown }) => {
       if (payload.eventType === 'DELETE') {
-        void loadSeasonData(true)
+        requestReload()
         return
       }
 
@@ -190,15 +221,17 @@ export function TrainingDashboard() {
 
     const channel = supabase
       .channel(`training:${seasonId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'training_players', filter: `season_id=eq.${seasonId}` }, () => void loadSeasonData(true))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'training_sessions', filter: `season_id=eq.${seasonId}` }, () => void loadSeasonData(true))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'training_players', filter: `season_id=eq.${seasonId}` }, requestReload)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'training_sessions', filter: `season_id=eq.${seasonId}` }, requestReload)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'training_attendance' }, patchAttendanceFromRealtime)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'training_competitions' }, () => void loadSeasonData(true))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'training_competition_results' }, () => void loadSeasonData(true))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'training_imported_points' }, () => void loadSeasonData(true))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'training_competitions' }, requestReload)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'training_competition_results' }, requestReload)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'training_imported_points' }, requestReload)
       .subscribe()
 
     return () => {
+      if (reloadTimer.current) clearTimeout(reloadTimer.current)
+      ++loadRevision.current
       void supabase.removeChannel(channel)
     }
   }, [seasonId, loadSeasonData])
@@ -650,6 +683,8 @@ export function TrainingDashboard() {
       placements[result.player_id] = result.place
     }
 
+    // Do not allow an earlier competition's writes to update the newly opened modal.
+    failedCompetitionWrites.current.clear()
     setCompetitionSaveState('saved')
     setCompetitionDraft({
       competition: activeCompetition,
@@ -661,83 +696,119 @@ export function TrainingDashboard() {
     })
   }
 
-  const persistCompetitionDraft = async (draft: CompetitionDraft) => {
-    if (!draft.competition) return
-    const competitionId = draft.competition.id
-    const bonusMade = draft.category === 'free_throw' && draft.freeThrowBonusMade
-    const title = draft.title.trim() || trainingCategoryLabel[draft.category]
-
-    const { error: updateError } = await supabase
-      .from('training_competitions')
-      .update({ title, category: draft.category, free_throw_bonus_made: bonusMade })
-      .eq('id', competitionId)
-    if (updateError) throw updateError
-
-    const { error: deleteError } = await supabase.from('training_competition_results').delete().eq('competition_id', competitionId)
-    if (deleteError) throw deleteError
-
-    const ranked = Object.entries(draft.placements)
-      .filter(([, place]) => typeof place === 'number' && place >= 1 && place <= 4)
-      .map(([playerId, place]) => ({
+  // Each change affects ONE player (or competition metadata), never the whole table.
+  // The previous implementation deleted every result and inserted the whole list again;
+  // rapid taps and Realtime refreshes could cause incomplete scores and heavy traffic.
+  const persistCompetitionPlacement = async (competitionId: string, playerId: string, place: number | null) => {
+    if (place === null) {
+      const { error } = await supabase.from('training_competition_results')
+        .delete().eq('competition_id', competitionId).eq('player_id', playerId)
+      if (error) throw error
+    } else {
+      const { error } = await supabase.from('training_competition_results').upsert({
         competition_id: competitionId,
         player_id: playerId,
-        place: place as number,
-        points: pointsForPlace(place as number),
-      }))
-
-    // Store only the base 4/3/2/1 placement points. The 2/2 bonus is derived
-    // from attendance + free_throw_bonus_made so every present player receives it,
-    // including players who already scored in the competition.
-    const payload = ranked
-    if (payload.length) {
-      const { error } = await supabase.from('training_competition_results').insert(payload)
+        place,
+        points: pointsForPlace(place),
+      }, { onConflict: 'competition_id,player_id' })
       if (error) throw error
     }
-
-    const savedAt = new Date().toISOString()
-    setCompetitions((previous) => previous.map((item) => item.id === competitionId ? { ...item, title, category: draft.category, free_throw_bonus_made: bonusMade } : item))
     setResults((previous) => [
-      ...previous.filter((row) => row.competition_id !== competitionId),
-      ...payload.map((row) => ({ ...row, raw_value: null, created_at: savedAt } as TrainingCompetitionResult)),
+      ...previous.filter((row) => row.competition_id !== competitionId || row.player_id !== playerId),
+      ...(place === null ? [] : [{
+        competition_id: competitionId, player_id: playerId, place,
+        points: pointsForPlace(place), raw_value: null, created_at: new Date().toISOString(),
+      } as TrainingCompetitionResult]),
     ])
   }
 
-  const queueCompetitionSave = (draft: CompetitionDraft) => {
+  const persistCompetitionMetadata = async (draft: CompetitionDraft) => {
+    if (!draft.competition) return
+    const title = draft.title.trim() || trainingCategoryLabel[draft.category]
+    const bonusMade = draft.category === 'free_throw' && draft.freeThrowBonusMade
+    const { error } = await supabase.from('training_competitions')
+      .update({ title, free_throw_bonus_made: bonusMade })
+      .eq('id', draft.competition.id)
+    if (error) throw error
+    setCompetitions((previous) => previous.map((item) => item.id === draft.competition?.id
+      ? { ...item, title, free_throw_bonus_made: bonusMade } : item))
+  }
+
+  const queueCompetitionSave = (key: string, operation: () => Promise<void>) => {
+    const revision = ++saveRevision.current
+    pendingCompetitionWrites.current += 1
     setCompetitionSaveState('saving')
     competitionSaveChain.current = competitionSaveChain.current
       .catch(() => undefined)
-      .then(() => persistCompetitionDraft(draft))
-      .then(() => setCompetitionSaveState('saved'))
-      .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : 'No s’han pogut guardar els resultats.'
-        setCompetitionSaveState('error')
-        alert(message)
+      .then(async () => {
+        try {
+          await operation()
+          failedCompetitionWrites.current.delete(key)
+        } catch (error) {
+          failedCompetitionWrites.current.set(key, operation)
+          const message = error instanceof Error ? error.message : 'No s’han pogut guardar els resultats.'
+          setCompetitionSaveState('error')
+          console.error('Error desant la competició:', message)
+        } finally {
+          pendingCompetitionWrites.current -= 1
+          if (pendingCompetitionWrites.current === 0) {
+            if (failedCompetitionWrites.current.size > 0) setCompetitionSaveState('error')
+            else setCompetitionSaveState('saved')
+            void loadSeasonData(true)
+          } else if (revision === saveRevision.current && failedCompetitionWrites.current.size === 0) {
+            setCompetitionSaveState('saving')
+          }
+        }
       })
   }
 
+  const retryCompetitionSaves = () => {
+    const failed = [...failedCompetitionWrites.current.entries()]
+    for (const [key, operation] of failed) queueCompetitionSave(key, operation)
+  }
+
+  const closeCompetition = () => {
+    if (pendingCompetitionWrites.current > 0) return
+    if (failedCompetitionWrites.current.size > 0) {
+      setConfirmState({
+        title: 'Tancar sense guardar?',
+        message: 'Alguns resultats no s’han pogut desar. Si tanques ara, es descartaran aquests canvis. Pots prémer Reintentar per conservar-los.',
+        confirmLabel: 'Descartar canvis pendents',
+        action: async () => {
+          failedCompetitionWrites.current.clear()
+          setCompetitionDraft(null)
+          await loadSeasonData(true)
+        },
+      })
+      return
+    }
+    setCompetitionDraft(null)
+  }
+
   const setCompetitionPlacement = (playerId: string, value: number) => {
-    if (!competitionDraft) return
+    if (!competitionDraft?.competition) return
+    const nextPlace = competitionDraft.placements[playerId] === value ? null : value
     const next: CompetitionDraft = {
       ...competitionDraft,
-      placements: {
-        ...competitionDraft.placements,
-        [playerId]: competitionDraft.placements[playerId] === value ? null : value,
-      },
+      placements: { ...competitionDraft.placements, [playerId]: nextPlace },
     }
     setCompetitionDraft(next)
-    queueCompetitionSave(next)
+    const competitionId = competitionDraft.competition.id
+    queueCompetitionSave(`${competitionId}:player:${playerId}`,
+      () => persistCompetitionPlacement(competitionId, playerId, nextPlace))
   }
 
   const setFreeThrowBonus = (checked: boolean) => {
-    if (!competitionDraft) return
+    if (!competitionDraft?.competition) return
     const next = { ...competitionDraft, freeThrowBonusMade: checked }
     setCompetitionDraft(next)
-    queueCompetitionSave(next)
+    queueCompetitionSave(`${competitionDraft.competition.id}:metadata`, () => persistCompetitionMetadata(next))
   }
 
   const saveCompetitionTitle = () => {
-    if (!competitionDraft) return
-    queueCompetitionSave(competitionDraft)
+    if (!competitionDraft?.competition) return
+    const draft = competitionDraft
+    queueCompetitionSave(`${draft.competition.id}:metadata`, () => persistCompetitionMetadata(draft))
   }
 
   const askDeleteCompetition = (competition: TrainingCompetition) => {
@@ -1042,11 +1113,11 @@ export function TrainingDashboard() {
       </section>
 
       {competitionDraft && (
-        <div className="modal-backdrop" onMouseDown={() => setCompetitionDraft(null)}>
+        <div className="modal-backdrop" onMouseDown={closeCompetition}>
           <section className="modal competition-modal" onMouseDown={(event) => event.stopPropagation()}>
             <div className="modal-header">
               <div><p className="eyebrow">{trainingCategoryLabel[competitionDraft.category]}</p><h2>Registrar punts</h2></div>
-              <button className="modal-close" onClick={() => setCompetitionDraft(null)}>Tancar</button>
+              <button className="modal-close" onClick={closeCompetition} disabled={competitionSaveState === 'saving'}>Tancar</button>
             </div>
             <label className="field"><span>Nom de la competició</span><input value={competitionDraft.title} onChange={(event) => setCompetitionDraft((previous) => previous ? { ...previous, title: event.target.value } : previous)} onBlur={saveCompetitionTitle} /></label>
 
@@ -1089,7 +1160,8 @@ export function TrainingDashboard() {
             </div>
             <div className={`competition-autosave-status ${competitionSaveState}`}>
               <span aria-hidden="true" />
-              <strong>{competitionSaveState === 'saving' ? 'Desant automàticament…' : competitionSaveState === 'error' ? 'Error en desar' : 'Resultats guardats automàticament'}</strong>
+              <strong>{competitionSaveState === 'saving' ? 'Desant automàticament…' : competitionSaveState === 'error' ? 'Hi ha dades pendents de desar; no tanquis aquesta finestra' : 'Resultats guardats automàticament'}</strong>
+              {competitionSaveState === 'error' && <button type="button" className="button secondary compact" onClick={retryCompetitionSaves}>Reintentar el desament</button>}
             </div>
           </section>
         </div>
