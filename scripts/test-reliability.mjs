@@ -42,6 +42,10 @@ try {
   assert.match(training, /onConflict: 'competition_id,player_id'/)
   assert.doesNotMatch(training, /\.delete\(\)\.eq\('competition_id', competitionId\)\s*\n\s*if/)
   assert.match(training, /failedCompetitionWrites/)
+  // Regression: the nullable competition must be narrowed before an async callback
+  // captures its ID (TS18047 caused the v3.10.1 production build to fail).
+  assert.match(training, /const competitionId = competitionDraft\.competition\.id/)
+  assert.doesNotMatch(training, /queueCompetitionSave\(`\$\{draft\.competition\.id\}/)
   assert.match(training, /fetchLinkedRows/)
   assert.match(training, /requestId !== loadRevision\.current/)
   for (const fn of ['record_game_clock', 'record_game_substitution', 'record_game_event', 'undo_game_action']) {

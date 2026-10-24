@@ -807,8 +807,11 @@ export function TrainingDashboard() {
 
   const saveCompetitionTitle = () => {
     if (!competitionDraft?.competition) return
+    // Capture the validated identifier before queuing asynchronous work.
+    // The draft type permits null during creation, so never dereference it later.
+    const competitionId = competitionDraft.competition.id
     const draft = competitionDraft
-    queueCompetitionSave(`${draft.competition.id}:metadata`, () => persistCompetitionMetadata(draft))
+    queueCompetitionSave(`${competitionId}:metadata`, () => persistCompetitionMetadata(draft))
   }
 
   const askDeleteCompetition = (competition: TrainingCompetition) => {

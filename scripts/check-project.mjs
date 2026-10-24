@@ -39,8 +39,8 @@ if (missing.length) {
 }
 
 const pkg = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8'))
-if (pkg.version !== '3.10.1') {
-  console.error('La versió del package no és 3.10.1.')
+if (pkg.version !== '3.10.2') {
+  console.error('La versió del package no és 3.10.2.')
   process.exit(1)
 }
 
@@ -187,4 +187,4 @@ if (/\bconfirm\s*\(/.test(allUiSource)) {
   process.exit(1)
 }
 
-console.log('Estructura v3.10.1 OK · titulars millorats i contracte local/visitant reforçat a marcador, cronologia, faltes/bonus, temps morts i plantilles.')
+console.log('Estructura v3.10.2 OK · titulars millorats i contracte local/visitant reforçat a marcador, cronologia, faltes/bonus, temps morts i plantilles.')
